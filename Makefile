@@ -1,4 +1,4 @@
-TARGET ?= tangnano20k
+TARGET ?= tangnano9k
 
 ifeq ($(TARGET),tangnano9k)
 BOARD := tangnano9k
@@ -20,7 +20,7 @@ SRC := src/top.v src/uart_rx.v src/uart_tx.v src/bitcoin_hash_core.v src/sha256_
 SPINAL_SRC := $(BUILD)/spinal/top.v
 SPINAL_PREFIX := $(BUILD)/tangminer_spinal_$(TARGET)
 VERILOG_PREFIX := $(BUILD)/tangminer_verilog_$(TARGET)
-OSS_CAD_SUITE ?= $(HOME)/oss-cad-suite
+OSS_CAD_SUITE ?= /d/git/FPGA/oss-cad-suite
 TOOLBIN := $(OSS_CAD_SUITE)/bin
 YOSYS := $(TOOLBIN)/yosys
 NEXTPNR := $(TOOLBIN)/nextpnr-himbaechel
