@@ -112,6 +112,10 @@ def words_to_bytes(words):
 def share_diff(work):
     return DIFF1 / max(work, 1)
 
+
+def reverse_word_bytes(data):
+    return b"".join(data[i:i + 4][::-1] for i in range(0, len(data), 4))
+
 # END: Taken from https://github.com/skot/TangMiner/blob/main/scripts/make_job.py 
 
 
@@ -153,7 +157,7 @@ while True:
             xn2_size = int(msg["params"][1])
         elif msg.get("method") == "mining.notify":
             p = msg["params"]
-            job = {"job_id": p[0], "prevhash": bytes.fromhex(p[1]), "coinb1": bytes.fromhex(p[2]), "coinb2": bytes.fromhex(p[3]), "branches": [bytes.fromhex(x) for x in p[4]], "version": bytes.fromhex(p[5])[::-1], "nbits": p[6], "nbits_le": bytes.fromhex(p[6])[::-1], "ntime": p[7], "ntime_le": bytes.fromhex(p[7])[::-1]}
+            job = {"job_id": p[0], "prevhash": reverse_word_bytes(bytes.fromhex(p[1])), "coinb1": bytes.fromhex(p[2]), "coinb2": bytes.fromhex(p[3]), "branches": [bytes.fromhex(x) for x in p[4]], "version": bytes.fromhex(p[5])[::-1], "nbits": p[6], "nbits_le": bytes.fromhex(p[6])[::-1], "ntime": p[7], "ntime_le": bytes.fromhex(p[7])[::-1]}
             active = None
     packet = ser.read(37)
     if packet:
@@ -163,6 +167,7 @@ while True:
         if not active or packet[:1] != b"F":
             continue
         nonce = packet[1:5]
+        submit_nonce = nonce[::-1].hex()
         header = active["header"][:76] + nonce
         digest = hashlib.sha256(hashlib.sha256(header).digest()).digest()
         if digest != packet[5:]:
@@ -179,29 +184,29 @@ while True:
             "MINER << nonce=%s secs=%.2f hashrate=%.3f MH/s share=%s share_diff=%.8g pool_diff=%.8g batch_diff=%.8g",
             nonce.hex(), secs, hashrate / 1e6, ok, found_diff, active["pool_diff"], batch_diff,
         )
-        proof_log.write(json.dumps({
-            "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "job_id": active["job_id"],
-            "extranonce2": active["xn2"],
-            "ntime": active["ntime"],
-            "nonce": nonce.hex(),
-            "hash": digest.hex(),
-            "work": f"{work:064x}",
-            "share": ok,
-            "block": block,
-            "share_diff": found_diff,
-            "pool_diff": active["pool_diff"],
-            "batch_diff": batch_diff,
-            "secs": secs,
-            "hashrate": hashrate,
-        }, separators=(",", ":")) + "\n")
         if ok:
+            proof_log.write(json.dumps({
+                "time": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "job_id": active["job_id"],
+                "extranonce2": active["xn2"],
+                "ntime": active["ntime"],
+                "nonce": submit_nonce,
+                "hash": digest.hex(),
+                "work": f"{work:064x}",
+                "share": ok,
+                "block": block,
+                "share_diff": found_diff,
+                "pool_diff": active["pool_diff"],
+                "batch_diff": batch_diff,
+                "secs": secs,
+                "hashrate": hashrate,
+            }, separators=(",", ":")) + "\n")
             log.info("FOUND proof-of-work job=%s nonce=%s hash=%s", active["job_id"], nonce.hex(), digest.hex())
         if block:
             log.info("FOUND bitcoin block candidate job=%s nonce=%s hash=%s", active["job_id"], nonce.hex(), digest.hex())
         if ok:
             rid += 1
-            line = json.dumps({"id": rid, "method": "mining.submit", "params": [USER, active["job_id"], active["xn2"], active["ntime"], nonce.hex()]}) + "\n"
+            line = json.dumps({"id": rid, "method": "mining.submit", "params": [USER, active["job_id"], active["xn2"], active["ntime"], submit_nonce]}) + "\n"
             log.info("POOL >> %s", line.strip())
             sock.sendall(line.encode())
         active = None
