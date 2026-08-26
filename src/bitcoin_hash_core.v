@@ -71,6 +71,17 @@ module bitcoin_hash_core #(
         end
     endfunction
 
+    // Lame: Yosys adding 500 LUTs cause it couldn't find an optimization:
+    function lt255;
+        input [255:0] a;
+        input [255:0] b;
+        wire  [256:0] subtraction;
+        begin
+            subtraction = {1'b0, a} - {1'b0, b};
+            lt255 = subtraction[256];
+        end
+    endfunction
+
     always @(posedge clk) begin
         if (reset) begin
             state <= S_IDLE;
@@ -128,7 +139,7 @@ module bitcoin_hash_core #(
 
                     S_SECOND_WAIT: begin
                         if (sha_done) begin
-                            if (reverse_bytes_256(sha_state_out) <= target) begin
+                            if (lt255(reverse_bytes_256(sha_state_out), target)) begin
                                 found <= 1'b1;
                                 found_nonce <= current_nonce;
                                 found_hash <= sha_state_out;
@@ -158,3 +169,4 @@ module bitcoin_hash_core #(
         end
     end
 endmodule
+

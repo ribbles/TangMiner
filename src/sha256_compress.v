@@ -1,3 +1,4 @@
+// (* keep *)
 module sha256_compress (
     input clk,
     input reset,
@@ -144,87 +145,44 @@ module sha256_compress (
         end
     endfunction
 
+    // Dedicated Message Schedule Pipeline Block
     always @(posedge clk) begin
         if (reset) begin
-            busy <= 1'b0;
-            done <= 1'b0;
-            state_out <= 256'd0;
-            round <= 7'd0;
-            w0 <= 32'd0;
-            w1 <= 32'd0;
-            w2 <= 32'd0;
-            w3 <= 32'd0;
-            w4 <= 32'd0;
-            w5 <= 32'd0;
-            w6 <= 32'd0;
-            w7 <= 32'd0;
-            w8 <= 32'd0;
-            w9 <= 32'd0;
-            w10 <= 32'd0;
-            w11 <= 32'd0;
-            w12 <= 32'd0;
-            w13 <= 32'd0;
-            w14 <= 32'd0;
-            w15 <= 32'd0;
+            w0  <= 32'd0; w1  <= 32'd0; w2  <= 32'd0; w3  <= 32'd0;
+            w4  <= 32'd0; w5  <= 32'd0; w6  <= 32'd0; w7  <= 32'd0;
+            w8  <= 32'd0; w9  <= 32'd0; w10 <= 32'd0; w11 <= 32'd0;
+            w12 <= 32'd0; w13 <= 32'd0; w14 <= 32'd0; w15 <= 32'd0;
         end else begin
-            done <= 1'b0;
-
+            // By wrapping the "start" block load here, it functions as a parallel load enable
             if (start && !busy) begin
-                h0 <= state_in[255:224];
-                h1 <= state_in[223:192];
-                h2 <= state_in[191:160];
-                h3 <= state_in[159:128];
-                h4 <= state_in[127:96];
-                h5 <= state_in[95:64];
-                h6 <= state_in[63:32];
-                h7 <= state_in[31:0];
-
-                a <= state_in[255:224];
-                b <= state_in[223:192];
-                c <= state_in[191:160];
-                d <= state_in[159:128];
-                e <= state_in[127:96];
-                f <= state_in[95:64];
-                g <= state_in[63:32];
-                h <= state_in[31:0];
-
-                w0 <= block[511:480];
-                w1 <= block[479:448];
-                w2 <= block[447:416];
-                w3 <= block[415:384];
-                w4 <= block[383:352];
-                w5 <= block[351:320];
-                w6 <= block[319:288];
-                w7 <= block[287:256];
-                w8 <= block[255:224];
-                w9 <= block[223:192];
-                w10 <= block[191:160];
-                w11 <= block[159:128];
-                w12 <= block[127:96];
-                w13 <= block[95:64];
-                w14 <= block[63:32];
-                w15 <= block[31:0];
-
-                round <= 7'd0;
-                busy <= 1'b1;
+                w0  <= block[511:480]; w1  <= block[479:448]; w2  <= block[447:416]; w3  <= block[415:384];
+                w4  <= block[383:352]; w5  <= block[351:320]; w6  <= block[319:288]; w7  <= block[287:256];
+                w8  <= block[255:224]; w9  <= block[223:192]; w10 <= block[191:160]; w11 <= block[159:128];
+                w12 <= block[127:96];  w13 <= block[95:64];   w14 <= block[63:32];   w15 <= block[31:0];
             end else if (busy) begin
-                w0 <= w1;
-                w1 <= w2;
-                w2 <= w3;
-                w3 <= w4;
-                w4 <= w5;
-                w5 <= w6;
-                w6 <= w7;
-                w7 <= w8;
-                w8 <= w9;
-                w9 <= w10;
-                w10 <= w11;
-                w11 <= w12;
-                w12 <= w13;
-                w13 <= w14;
-                w14 <= w15;
-                w15 <= w_next;
+                w0  <= w1;   w1  <= w2;   w2  <= w3;   w3  <= w4;
+                w4  <= w5;   w5  <= w6;   w6  <= w7;   w7  <= w8;
+                w8  <= w9;   w9  <= w10;  w10 <= w11;  w11 <= w12;
+                w12 <= w13;  w13 <= w14;  w14 <= w15;  w15 <= w_next;
+            end
+        end
+    end
 
+    // Dedicated SHA-256 Round State Block
+    always @(posedge clk) begin
+        if (reset) begin
+            a <= 32'd0; b <= 32'd0; c <= 32'd0; d <= 32'd0;
+            e <= 32'd0; f <= 32'd0; g <= 32'd0; h <= 32'd0;
+            h0 <= 32'd0; h1 <= 32'd0; h2 <= 32'd0; h3 <= 32'd0;
+            h4 <= 32'd0; h5 <= 32'd0; h6 <= 32'd0; h7 <= 32'd0;
+        end else begin
+            if (start && !busy) begin
+                h0 <= state_in[255:224]; h1 <= state_in[223:192]; h2 <= state_in[191:160]; h3 <= state_in[159:128];
+                h4 <= state_in[127:96];  h5 <= state_in[95:64];   h6 <= state_in[63:32];   h7 <= state_in[31:0];
+
+                a <= state_in[255:224];  b <= state_in[223:192];  c <= state_in[191:160];  d <= state_in[159:128];
+                e <= state_in[127:96];   f <= state_in[95:64];    g <= state_in[63:32];    h <= state_in[31:0];
+            end else if (busy) begin
                 h <= g;
                 g <= f;
                 f <= e;
@@ -233,17 +191,29 @@ module sha256_compress (
                 c <= b;
                 b <= a;
                 a <= t1 + t2;
+            end
+        end
+    end
 
+    
+    // Master System Control Block
+    always @(posedge clk) begin
+        if (reset) begin
+            busy      <= 1'b0;
+            done      <= 1'b0;
+            state_out <= 256'd0;
+            round     <= 7'd0;
+        end else begin
+            done <= 1'b0;
+
+            if (start && !busy) begin
+                round <= 7'd0;
+                busy  <= 1'b1;
+            end else if (busy) begin
                 if (round == 7'd63) begin
                     state_out <= {
-                        h0 + t1 + t2,
-                        h1 + a,
-                        h2 + b,
-                        h3 + c,
-                        h4 + d + t1,
-                        h5 + e,
-                        h6 + f,
-                        h7 + g
+                        h0 + t1 + t2, h1 + a, h2 + b, h3 + c,
+                        h4 + d + t1,  h5 + e, h6 + f, h7 + g
                     };
                     busy <= 1'b0;
                     done <= 1'b1;
@@ -253,4 +223,116 @@ module sha256_compress (
             end
         end
     end
+
+
+    // // Dedicated Message Schedule Pipeline Block
+    // always @(posedge clk) begin
+    //     if (reset) begin
+    //         busy <= 1'b0;
+    //         done <= 1'b0;
+    //         state_out <= 256'd0;
+    //         round <= 7'd0;
+    //         w0 <= 32'd0;
+    //         w1 <= 32'd0;
+    //         w2 <= 32'd0;
+    //         w3 <= 32'd0;
+    //         w4 <= 32'd0;
+    //         w5 <= 32'd0;
+    //         w6 <= 32'd0;
+    //         w7 <= 32'd0;
+    //         w8 <= 32'd0;
+    //         w9 <= 32'd0;
+    //         w10 <= 32'd0;
+    //         w11 <= 32'd0;
+    //         w12 <= 32'd0;
+    //         w13 <= 32'd0;
+    //         w14 <= 32'd0;
+    //         w15 <= 32'd0;
+    //     end else begin
+    //         done <= 1'b0;
+
+    //         if (start && !busy) begin
+    //             h0 <= state_in[255:224];
+    //             h1 <= state_in[223:192];
+    //             h2 <= state_in[191:160];
+    //             h3 <= state_in[159:128];
+    //             h4 <= state_in[127:96];
+    //             h5 <= state_in[95:64];
+    //             h6 <= state_in[63:32];
+    //             h7 <= state_in[31:0];
+
+    //             a <= state_in[255:224];
+    //             b <= state_in[223:192];
+    //             c <= state_in[191:160];
+    //             d <= state_in[159:128];
+    //             e <= state_in[127:96];
+    //             f <= state_in[95:64];
+    //             g <= state_in[63:32];
+    //             h <= state_in[31:0];
+
+    //             w0 <= block[511:480];
+    //             w1 <= block[479:448];
+    //             w2 <= block[447:416];
+    //             w3 <= block[415:384];
+    //             w4 <= block[383:352];
+    //             w5 <= block[351:320];
+    //             w6 <= block[319:288];
+    //             w7 <= block[287:256];
+    //             w8 <= block[255:224];
+    //             w9 <= block[223:192];
+    //             w10 <= block[191:160];
+    //             w11 <= block[159:128];
+    //             w12 <= block[127:96];
+    //             w13 <= block[95:64];
+    //             w14 <= block[63:32];
+    //             w15 <= block[31:0];
+
+    //             round <= 7'd0;
+    //             busy <= 1'b1;
+    //         end else if (busy) begin
+    //             w0 <= w1;
+    //             w1 <= w2;
+    //             w2 <= w3;
+    //             w3 <= w4;
+    //             w4 <= w5;
+    //             w5 <= w6;
+    //             w6 <= w7;
+    //             w7 <= w8;
+    //             w8 <= w9;
+    //             w9 <= w10;
+    //             w10 <= w11;
+    //             w11 <= w12;
+    //             w12 <= w13;
+    //             w13 <= w14;
+    //             w14 <= w15;
+    //             w15 <= w_next;
+
+    //             h <= g;
+    //             g <= f;
+    //             f <= e;
+    //             e <= d + t1;
+    //             d <= c;
+    //             c <= b;
+    //             b <= a;
+    //             a <= t1 + t2;
+
+    //             if (round == 7'd63) begin
+    //                 state_out <= {
+    //                     h0 + t1 + t2,
+    //                     h1 + a,
+    //                     h2 + b,
+    //                     h3 + c,
+    //                     h4 + d + t1,
+    //                     h5 + e,
+    //                     h6 + f,
+    //                     h7 + g
+    //                 };
+    //                 busy <= 1'b0;
+    //                 done <= 1'b1;
+    //             end else begin
+    //                 round <= round + 7'd1;
+    //             end
+    //         end
+    //     end
+    // end
 endmodule

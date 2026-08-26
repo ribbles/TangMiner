@@ -1,0 +1,24 @@
+read_verilog src/top.v src/uart_rx.v src/uart_tx.v src/bitcoin_hash_core.v src/sha256_compress.v
+
+hierarchy -top top
+proc
+flatten
+
+# 1. Structural preparation 
+alumacc
+opt
+
+# 2. Halt synthesis right before the default mapper runs
+synth_gowin -top top -run :map_lut
+
+# 3. INTERCEPT: Pass the optimization recipe directly into ABC
+# We use + to feed raw internal command strings to ABC.
+# 'strash' creates an And-Inverter Graph.
+# 'dch' performs aggressive choice-node rewriting (structural equivalent of Gowin's solver).
+# 'if -K 4 -M 2' tells the mapper to map to 4-input LUTs and prioritize up to 2-input MUX cascades natively.
+# 'lutpack' forces dense packing of shared input variables.
+abc -script +strash,dch,-f,if,-K,4,-M,2,lutpack
+
+# 4. Resume the rest of the Gowin cell map
+synth_gowin -run map_lut:
+write_json build/tangminer_verilog_tangnano9k.json

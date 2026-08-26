@@ -105,7 +105,7 @@ gowin:
 	/c/Gowin/Gowin_V1.9.11.03_Education_x64/IDE/bin/gw_sh.exe build_gowin.tcl
 
 mine:
-	python mine.py
+	python scripts/mine.py
 
 clean:
 	rm -rf $(BUILD)

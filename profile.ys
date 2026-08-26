@@ -1,0 +1,16 @@
+# 1. Read and elaborate your Verilog files
+read_verilog src/top.v src/uart_rx.v src/uart_tx.v src/bitcoin_hash_core.v src/sha256_compress.v
+
+# 2. Elaborate using your top module name
+hierarchy -top top
+proc
+flatten
+opt
+
+# 3. Map to Gowin primitives so the profile sees post-synthesis cells/LUTs,
+#    not just coarse RTLIL cells like $add and $mux.
+synth_gowin -top top
+
+# 4. Log expanded cell metadata to our dump file. "dump" includes attributes
+#    such as src=..., which the parser uses to attribute cells to source lines.
+tee -o build/line_profile_dump.txt dump c:*
