@@ -46,13 +46,26 @@ module top (
     reg [255:0] midstate;
     reg [95:0] tail;
     reg [255:0] target;
-    wire core_running;
-    wire core_found;
-    wire [31:0] core_found_nonce;
-    wire [255:0] core_found_hash;
-    wire [31:0] current_nonce;
+    wire core0_running;
+    wire core0_found;
+    wire [31:0] core0_found_nonce;
+    wire [255:0] core0_found_hash;
+    wire [31:0] core0_current_nonce;
+    wire core1_running;
+    wire core1_found;
+    wire [31:0] core1_found_nonce;
+    wire [255:0] core1_found_hash;
+    wire [31:0] core1_current_nonce;
+    wire core_running = core0_running || core1_running;
+    wire core_found = core0_found || core1_found;
+    wire [31:0] core_found_nonce = core0_found ? core0_found_nonce : core1_found_nonce;
+    wire [255:0] core_found_hash = core0_found ? core0_found_hash : core1_found_hash;
+    wire [31:0] current_nonce = core0_current_nonce;
 
-    bitcoin_hash_core core0 (
+    bitcoin_hash_core #(
+        .START_NONCE(32'd0),
+        .NONCE_STRIDE(32'd2)
+    ) core0 (
         .clk(clk),
         .reset(reset),
         .start(core_start),
@@ -60,11 +73,29 @@ module top (
         .midstate(midstate),
         .tail(tail),
         .target(target),
-        .running(core_running),
-        .found(core_found),
-        .found_nonce(core_found_nonce),
-        .found_hash(core_found_hash),
-        .current_nonce(current_nonce)
+        .running(core0_running),
+        .found(core0_found),
+        .found_nonce(core0_found_nonce),
+        .found_hash(core0_found_hash),
+        .current_nonce(core0_current_nonce)
+    );
+
+    bitcoin_hash_core #(
+        .START_NONCE(32'd1),
+        .NONCE_STRIDE(32'd2)
+    ) core1 (
+        .clk(clk),
+        .reset(reset),
+        .start(core_start),
+        .stop(core_stop),
+        .midstate(midstate),
+        .tail(tail),
+        .target(target),
+        .running(core1_running),
+        .found(core1_found),
+        .found_nonce(core1_found_nonce),
+        .found_hash(core1_found_hash),
+        .current_nonce(core1_current_nonce)
     );
 
     localparam R_SYNC0 = 3'd0;

@@ -1,4 +1,7 @@
-module bitcoin_hash_core (
+module bitcoin_hash_core #(
+    parameter [31:0] START_NONCE = 32'd0,
+    parameter [31:0] NONCE_STRIDE = 32'd1
+) (
     input clk,
     input reset,
     input start,
@@ -92,7 +95,7 @@ module bitcoin_hash_core (
                         found <= 1'b0;
                         running <= 1'b0;
                         if (start) begin
-                            current_nonce <= 32'd0;
+                            current_nonce <= START_NONCE;
                             running <= 1'b1;
                             state <= S_FIRST_START;
                         end
@@ -131,7 +134,7 @@ module bitcoin_hash_core (
                                 found_hash <= sha_state_out;
                                 state <= S_REPORT;
                             end else begin
-                                current_nonce <= current_nonce + 32'd1;
+                                current_nonce <= current_nonce + NONCE_STRIDE;
                                 state <= S_FIRST_START;
                             end
                         end
@@ -141,7 +144,7 @@ module bitcoin_hash_core (
                         running <= 1'b0;
                         if (start) begin
                             found <= 1'b0;
-                            current_nonce <= 32'd0;
+                            current_nonce <= START_NONCE;
                             running <= 1'b1;
                             state <= S_FIRST_START;
                         end

@@ -165,6 +165,28 @@ python scripts/serial_smoke.py --timeout 3 /dev/cu.usbserial-*
 
 The echo test should report `ECHO OK`. The hash test uses an easy all-ones target and should return an `F` response with a nonce and hash.
 
+## Run the miner
+
+First find a mining pool that allows really low difficlutly proof of work, like https://web.public-pool.io/
+
+Update mine.py:
+
+```
+PORT = "COM9"
+BAUD = 115200
+HOST = "public-pool.io"
+POOL_PORT = 13333
+USER = "<my-account-sha>.my-miner"
+PASS = "who-cares"
+```
+
+Then run:
+
+```
+make mine
+```
+
+
 ## Host Serial Protocol
 
 TangMiner exposes a tiny binary UART protocol so host miner software can treat the FPGA as a hash engine. The FPGA UART is fixed at `115200 8N1` with no flow control.

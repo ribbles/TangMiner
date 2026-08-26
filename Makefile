@@ -29,8 +29,9 @@ OPENFPGALOADER := $(TOOLBIN)/openFPGALoader
 IVERILOG := $(TOOLBIN)/iverilog
 VVP := $(TOOLBIN)/vvp
 SBT ?= sbt
+NEXTPNR_OPTS := --tmg-ripup
 
-.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-sha sim-bitcoin
+.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-sha sim-bitcoin sim-dual gowin flash-gowin
 
 all: build
 
@@ -53,7 +54,7 @@ $(VERILOG_PREFIX).json: $(SRC) | $(BUILD)/.dir
 	$(YOSYS) -p "read_verilog $(SRC); synth_gowin -top $(TOP) -json $@"
 
 $(VERILOG_PREFIX)_pnr.json: $(VERILOG_PREFIX).json $(CST)
-	$(NEXTPNR) --json $< --write $@ --freq 27 --device $(DEVICE) -o family=$(FAMILY) -o cst=$(CST)
+	$(NEXTPNR) $(NEXTPNR_OPTS) --json $< --write $@ --freq 27 --device $(DEVICE) -o family=$(FAMILY) -o cst=$(CST)
 
 $(VERILOG_PREFIX).fs: $(VERILOG_PREFIX)_pnr.json
 	$(GOWIN_PACK) -d $(FAMILY) -o $@ $<
@@ -62,7 +63,7 @@ $(SPINAL_PREFIX).json: $(SPINAL_SRC) | $(BUILD)/.dir
 	$(YOSYS) -p "read_verilog $(SPINAL_SRC); synth_gowin -top $(TOP) -json $@"
 
 $(SPINAL_PREFIX)_pnr.json: $(SPINAL_PREFIX).json $(CST)
-	$(NEXTPNR) --json $< --write $@ --freq 27 --device $(DEVICE) -o family=$(FAMILY) -o cst=$(CST)
+	$(NEXTPNR) $(NEXTPNR_OPTS) --json $< --write $@ --freq 27 --device $(DEVICE) -o family=$(FAMILY) -o cst=$(CST)
 
 $(SPINAL_PREFIX).fs: $(SPINAL_PREFIX)_pnr.json
 	$(GOWIN_PACK) -d $(FAMILY) -o $@ $<
@@ -83,7 +84,10 @@ flash-verilog: $(VERILOG_PREFIX).fs
 flash-spinal: $(SPINAL_PREFIX).fs
 	$(OPENFPGALOADER) -b $(BOARD) -f $<
 
-sim: sim-sha sim-bitcoin
+flash-gowin:
+	$(OPENFPGALOADER) -b $(BOARD) -f impl/pnr/top.fs
+
+sim: sim-sha sim-bitcoin sim-dual
 
 sim-sha: | $(BUILD)/.dir
 	$(IVERILOG) -g2012 -o $(BUILD)/tb_sha256_compress sim/tb_sha256_compress.v src/sha256_compress.v
@@ -93,5 +97,16 @@ sim-bitcoin: | $(BUILD)/.dir
 	$(IVERILOG) -g2012 -o $(BUILD)/tb_bitcoin_hash_core sim/tb_bitcoin_hash_core.v src/bitcoin_hash_core.v src/sha256_compress.v
 	$(VVP) $(BUILD)/tb_bitcoin_hash_core
 
+sim-dual: | $(BUILD)/.dir
+	$(IVERILOG) -g2012 -o $(BUILD)/tb_dual_bitcoin_hash_core sim/tb_dual_bitcoin_hash_core.v src/bitcoin_hash_core.v src/sha256_compress.v
+	$(VVP) $(BUILD)/tb_dual_bitcoin_hash_core
+
+gowin:
+	/c/Gowin/Gowin_V1.9.11.03_Education_x64/IDE/bin/gw_sh.exe build_gowin.tcl
+
+mine:
+	python mine.py
+
 clean:
 	rm -rf $(BUILD)
+	rm -rf impl
