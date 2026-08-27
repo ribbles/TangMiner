@@ -104,9 +104,18 @@ sim-dual: | $(BUILD)/.dir
 gowin:
 	/c/Gowin/Gowin_V1.9.11.03_Education_x64/IDE/bin/gw_sh.exe build_gowin.tcl
 
+vivado:
+	/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat -mode batch -source build_kintex7.tcl -log vivado_build.log -journal vivado.jou
+
 mine:
 	python scripts/mine.py
+
+profile:
+	yosys -s profile.ys
+	echo "Generating profile_report.txt from profile data..."
+	python scripts/parse_profile.py > profile_report.txt
 
 clean:
 	rm -rf $(BUILD)
 	rm -rf impl
+	rm -rf .Xil

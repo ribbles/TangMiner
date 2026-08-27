@@ -1,3 +1,4 @@
+// (* keep *)
 module sha256_compress (
     input clk,
     input reset,
@@ -45,45 +46,9 @@ module sha256_compress (
     reg [6:0] round;
 
     wire [31:0] w_round = w0;
-    wire [31:0] t1_add1;
-    wire [31:0] t1_add2;
-    wire [31:0] t1;
-    wire [31:0] t2;
-
     wire [31:0] w_next = s1(w14) + w9 + s0(w1) + w0;
-
-    add3 t1_add_stage0 (
-        .clk(clk),
-        .reset(reset),
-        .x(h),
-        .y(bsig1(e)),
-        .z(ch(e, f, g)),
-        .sum(t1_add1)
-    );
-
-    add2 t1_add_stage2 (
-        .clk(clk),
-        .reset(reset),
-        .x(t1_add1),
-        .y(k(round)),
-        .sum(t1_add2)
-    );
-
-    add2 t1_add_stage3 (
-        .clk(clk),
-        .reset(reset),
-        .x(t1_add2),
-        .y(w_round),
-        .sum(t1)
-    );
-
-    add2 t2_add (
-        .clk(clk),
-        .reset(reset),
-        .x(bsig0(a)),
-        .y(maj(a, b, c)),
-        .sum(t2)
-    );
+    wire [31:0] t1 = h + bsig1(e) + ch(e, f, g) + k(round) + w_round;
+    wire [31:0] t2 = bsig0(a) + maj(a, b, c);
 
     function [31:0] rotr;
         input [31:0] x;
@@ -258,116 +223,116 @@ module sha256_compress (
             end
         end
     end
-endmodule
 
-module add3 (
-    input clk,
-    input reset,
-    input [31:0] x,
-    input [31:0] y,
-    input [31:0] z,
-    output [31:0] sum
-);
-`ifdef SYNTHESIS
-    wire [53:0] stage0_dout;
-    wire [54:0] stage0_caso;
-    wire [53:0] stage1_dout;
-    wire [54:0] stage1_caso;
 
-    ALU54D #(
-        .AREG(1'b0),
-        .BREG(1'b0),
-        .ASIGN_REG(1'b0),
-        .BSIGN_REG(1'b0),
-        .ACCLOAD_REG(1'b0),
-        .OUT_REG(1'b0),
-        .B_ADD_SUB(1'b0),
-        .C_ADD_SUB(1'b0),
-        .ALUD_MODE(0),
-        .ALU_RESET_MODE("SYNC")
-    ) alu54d_add0 (
-        .A({22'd0, x}),
-        .B({22'd0, y}),
-        .ASIGN(1'b0),
-        .BSIGN(1'b0),
-        .ACCLOAD(1'b0),
-        .CASI(55'd0),
-        .CLK(clk),
-        .CE(1'b1),
-        .RESET(reset),
-        .DOUT(stage0_dout),
-        .CASO(stage0_caso)
-    );
+    // // Dedicated Message Schedule Pipeline Block
+    // always @(posedge clk) begin
+    //     if (reset) begin
+    //         busy <= 1'b0;
+    //         done <= 1'b0;
+    //         state_out <= 256'd0;
+    //         round <= 7'd0;
+    //         w0 <= 32'd0;
+    //         w1 <= 32'd0;
+    //         w2 <= 32'd0;
+    //         w3 <= 32'd0;
+    //         w4 <= 32'd0;
+    //         w5 <= 32'd0;
+    //         w6 <= 32'd0;
+    //         w7 <= 32'd0;
+    //         w8 <= 32'd0;
+    //         w9 <= 32'd0;
+    //         w10 <= 32'd0;
+    //         w11 <= 32'd0;
+    //         w12 <= 32'd0;
+    //         w13 <= 32'd0;
+    //         w14 <= 32'd0;
+    //         w15 <= 32'd0;
+    //     end else begin
+    //         done <= 1'b0;
 
-    ALU54D #(
-        .AREG(1'b0),
-        .BREG(1'b0),
-        .ASIGN_REG(1'b0),
-        .BSIGN_REG(1'b0),
-        .ACCLOAD_REG(1'b0),
-        .OUT_REG(1'b0),
-        .B_ADD_SUB(1'b0),
-        .C_ADD_SUB(1'b0),
-        .ALUD_MODE(1),
-        .ALU_RESET_MODE("SYNC")
-    ) alu54d_add1 (
-        .A(54'd0),
-        .B({22'd0, z}),
-        .ASIGN(1'b0),
-        .BSIGN(1'b0),
-        .ACCLOAD(1'b0),
-        .CASI(stage0_caso),
-        .CLK(clk),
-        .CE(1'b1),
-        .RESET(reset),
-        .DOUT(stage1_dout),
-        .CASO(stage1_caso)
-    );
+    //         if (start && !busy) begin
+    //             h0 <= state_in[255:224];
+    //             h1 <= state_in[223:192];
+    //             h2 <= state_in[191:160];
+    //             h3 <= state_in[159:128];
+    //             h4 <= state_in[127:96];
+    //             h5 <= state_in[95:64];
+    //             h6 <= state_in[63:32];
+    //             h7 <= state_in[31:0];
 
-    assign sum = stage1_dout[31:0];
-`else
-    assign sum = x + y + z;
-`endif
-endmodule
+    //             a <= state_in[255:224];
+    //             b <= state_in[223:192];
+    //             c <= state_in[191:160];
+    //             d <= state_in[159:128];
+    //             e <= state_in[127:96];
+    //             f <= state_in[95:64];
+    //             g <= state_in[63:32];
+    //             h <= state_in[31:0];
 
-module add2 (
-    input clk,
-    input reset,
-    input [31:0] x,
-    input [31:0] y,
-    output [31:0] sum
-);
-`ifdef SYNTHESIS
-    wire [53:0] dout;
-    wire [54:0] caso;
+    //             w0 <= block[511:480];
+    //             w1 <= block[479:448];
+    //             w2 <= block[447:416];
+    //             w3 <= block[415:384];
+    //             w4 <= block[383:352];
+    //             w5 <= block[351:320];
+    //             w6 <= block[319:288];
+    //             w7 <= block[287:256];
+    //             w8 <= block[255:224];
+    //             w9 <= block[223:192];
+    //             w10 <= block[191:160];
+    //             w11 <= block[159:128];
+    //             w12 <= block[127:96];
+    //             w13 <= block[95:64];
+    //             w14 <= block[63:32];
+    //             w15 <= block[31:0];
 
-    ALU54D #(
-        .AREG(1'b0),
-        .BREG(1'b0),
-        .ASIGN_REG(1'b0),
-        .BSIGN_REG(1'b0),
-        .ACCLOAD_REG(1'b0),
-        .OUT_REG(1'b0),
-        .B_ADD_SUB(1'b0),
-        .C_ADD_SUB(1'b0),
-        .ALUD_MODE(0),
-        .ALU_RESET_MODE("SYNC")
-    ) alu54d_add (
-        .A({22'd0, x}),
-        .B({22'd0, y}),
-        .ASIGN(1'b0),
-        .BSIGN(1'b0),
-        .ACCLOAD(1'b0),
-        .CASI(55'd0),
-        .CLK(clk),
-        .CE(1'b1),
-        .RESET(reset),
-        .DOUT(dout),
-        .CASO(caso)
-    );
+    //             round <= 7'd0;
+    //             busy <= 1'b1;
+    //         end else if (busy) begin
+    //             w0 <= w1;
+    //             w1 <= w2;
+    //             w2 <= w3;
+    //             w3 <= w4;
+    //             w4 <= w5;
+    //             w5 <= w6;
+    //             w6 <= w7;
+    //             w7 <= w8;
+    //             w8 <= w9;
+    //             w9 <= w10;
+    //             w10 <= w11;
+    //             w11 <= w12;
+    //             w12 <= w13;
+    //             w13 <= w14;
+    //             w14 <= w15;
+    //             w15 <= w_next;
 
-    assign sum = dout[31:0];
-`else
-    assign sum = x + y;
-`endif
+    //             h <= g;
+    //             g <= f;
+    //             f <= e;
+    //             e <= d + t1;
+    //             d <= c;
+    //             c <= b;
+    //             b <= a;
+    //             a <= t1 + t2;
+
+    //             if (round == 7'd63) begin
+    //                 state_out <= {
+    //                     h0 + t1 + t2,
+    //                     h1 + a,
+    //                     h2 + b,
+    //                     h3 + c,
+    //                     h4 + d + t1,
+    //                     h5 + e,
+    //                     h6 + f,
+    //                     h7 + g
+    //                 };
+    //                 busy <= 1'b0;
+    //                 done <= 1'b1;
+    //             end else begin
+    //                 round <= round + 7'd1;
+    //             end
+    //         end
+    //     end
+    // end
 endmodule

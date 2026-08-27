@@ -1,10 +1,14 @@
-module top (
+module top #(
+    parameter CLK_FREQ = 27000000,    // 27MHz for Tang Nano, 100MHz or similar for K7
+    parameter BAUD_RATE = 115200
+)(
     input clk,
     input uart_rx_pin,
     output uart_tx_pin,
     output [5:0] led
 );
-    localparam CLKS_PER_BIT = 234; // 27 MHz / 115200 baud.
+    // Compute UART Bit Period Tick count
+    localparam CLKS_PER_BIT = CLK_FREQ / BAUD_RATE;
     localparam JOB_BYTES = 76;
     localparam FOUND_RESP_BYTES = 37;
     localparam ECHO_RESP_BYTES = 77;
