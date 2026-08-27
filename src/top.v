@@ -1,6 +1,7 @@
 module top #(
     parameter CLK_FREQ = 27000000,    // 27MHz for Tang Nano, 100MHz or similar for K7
-    parameter BAUD_RATE = 115200
+    parameter BAUD_RATE = 115200,
+    parameter CORES = 2
 )(
     input clk,
     input uart_rx_pin,
@@ -50,57 +51,60 @@ module top #(
     reg [255:0] midstate;
     reg [95:0] tail;
     reg [255:0] target;
-    wire core0_running;
-    wire core0_found;
-    wire [31:0] core0_found_nonce;
-    wire [255:0] core0_found_hash;
-    wire [31:0] core0_current_nonce;
-    wire core1_running;
-    wire core1_found;
-    wire [31:0] core1_found_nonce;
-    wire [255:0] core1_found_hash;
-    wire [31:0] core1_current_nonce;
-    wire core_running = core0_running || core1_running;
-    wire core_found = core0_found || core1_found;
-    wire [31:0] core_found_nonce = core0_found ? core0_found_nonce : core1_found_nonce;
-    wire [255:0] core_found_hash = core0_found ? core0_found_hash : core1_found_hash;
-    wire [31:0] current_nonce = core0_current_nonce;
+    
+    wire [CORES-1:0] coreX_running;
+    wire [CORES-1:0] coreX_found;
+    wire [(CORES*32)-1:0] coreX_found_nonce;
+    wire [(CORES*256)-1:0] coreX_found_hash;
+    wire [(CORES*32)-1:0] coreX_current_nonce;
 
-    bitcoin_hash_core #(
-        .START_NONCE(32'd0),
-        .NONCE_STRIDE(32'd2)
-    ) core0 (
-        .clk(clk),
-        .reset(reset),
-        .start(core_start),
-        .stop(core_stop),
-        .midstate(midstate),
-        .tail(tail),
-        .target(target),
-        .running(core0_running),
-        .found(core0_found),
-        .found_nonce(core0_found_nonce),
-        .found_hash(core0_found_hash),
-        .current_nonce(core0_current_nonce)
-    );
+    // wire found = core0_found || core1_found;
+    // wire [31:0] found_nonce = core0_found ? core0_found_nonce : core1_found_nonce;
+    // wire [255:0] found_hash = core0_found ? core0_found_hash : core1_found_hash;
 
-    bitcoin_hash_core #(
-        .START_NONCE(32'd1),
-        .NONCE_STRIDE(32'd2)
-    ) core1 (
-        .clk(clk),
-        .reset(reset),
-        .start(core_start),
-        .stop(core_stop),
-        .midstate(midstate),
-        .tail(tail),
-        .target(target),
-        .running(core1_running),
-        .found(core1_found),
-        .found_nonce(core1_found_nonce),
-        .found_hash(core1_found_hash),
-        .current_nonce(core1_current_nonce)
-    );
+    localparam CORE_INDEX_BITS = (CORES <= 1) ? 1 : $clog2(CORES);
+
+    reg found;
+    reg [CORE_INDEX_BITS-1:0] found_index;
+    integer idx;
+
+    // Select the lowest-numbered core reporting a found nonce.
+    always @(*) begin
+        found = 1'b0;
+        found_index = {CORE_INDEX_BITS{1'b0}};
+        for (idx = 0; idx < CORES; idx = idx + 1) begin
+            if (coreX_found[idx] && !found) begin
+                found = 1'b1;
+                found_index = idx;
+            end
+        end
+    end
+
+    wire [31:0] found_nonce = found ? coreX_found_nonce[found_index * 32 +: 32] : 32'd0;
+    wire [255:0] found_hash = found ? coreX_found_hash[found_index * 256 +: 256] : 256'd0;
+
+    genvar i;
+    generate
+    for (i = 0; i < CORES; i = i + 1) begin : gg
+        bitcoin_hash_core #(
+            .START_NONCE(i),
+            .NONCE_STRIDE(CORES)
+        ) coreX (
+            .clk(clk),
+            .reset(reset),
+            .start(core_start),
+            .stop(core_stop),
+            .midstate(midstate),
+            .tail(tail),
+            .target(target),
+            .running(coreX_running[i]),
+            .found(coreX_found[i]),
+            .found_nonce(coreX_found_nonce[i * 32 +: 32]),
+            .found_hash(coreX_found_hash[i * 256 +: 256]),
+            .current_nonce(coreX_current_nonce[i * 32 +: 32])
+        );
+    end
+    endgenerate
 
     localparam R_SYNC0 = 3'd0;
     localparam R_SYNC1 = 3'd1;
@@ -127,42 +131,42 @@ module top #(
         begin
             case (index)
                 6'd0: found_response_byte = "F";
-                6'd1: found_response_byte = core_found_nonce[31:24];
-                6'd2: found_response_byte = core_found_nonce[23:16];
-                6'd3: found_response_byte = core_found_nonce[15:8];
-                6'd4: found_response_byte = core_found_nonce[7:0];
-                6'd5: found_response_byte = core_found_hash[255:248];
-                6'd6: found_response_byte = core_found_hash[247:240];
-                6'd7: found_response_byte = core_found_hash[239:232];
-                6'd8: found_response_byte = core_found_hash[231:224];
-                6'd9: found_response_byte = core_found_hash[223:216];
-                6'd10: found_response_byte = core_found_hash[215:208];
-                6'd11: found_response_byte = core_found_hash[207:200];
-                6'd12: found_response_byte = core_found_hash[199:192];
-                6'd13: found_response_byte = core_found_hash[191:184];
-                6'd14: found_response_byte = core_found_hash[183:176];
-                6'd15: found_response_byte = core_found_hash[175:168];
-                6'd16: found_response_byte = core_found_hash[167:160];
-                6'd17: found_response_byte = core_found_hash[159:152];
-                6'd18: found_response_byte = core_found_hash[151:144];
-                6'd19: found_response_byte = core_found_hash[143:136];
-                6'd20: found_response_byte = core_found_hash[135:128];
-                6'd21: found_response_byte = core_found_hash[127:120];
-                6'd22: found_response_byte = core_found_hash[119:112];
-                6'd23: found_response_byte = core_found_hash[111:104];
-                6'd24: found_response_byte = core_found_hash[103:96];
-                6'd25: found_response_byte = core_found_hash[95:88];
-                6'd26: found_response_byte = core_found_hash[87:80];
-                6'd27: found_response_byte = core_found_hash[79:72];
-                6'd28: found_response_byte = core_found_hash[71:64];
-                6'd29: found_response_byte = core_found_hash[63:56];
-                6'd30: found_response_byte = core_found_hash[55:48];
-                6'd31: found_response_byte = core_found_hash[47:40];
-                6'd32: found_response_byte = core_found_hash[39:32];
-                6'd33: found_response_byte = core_found_hash[31:24];
-                6'd34: found_response_byte = core_found_hash[23:16];
-                6'd35: found_response_byte = core_found_hash[15:8];
-                6'd36: found_response_byte = core_found_hash[7:0];
+                6'd1: found_response_byte = found_nonce[31:24];
+                6'd2: found_response_byte = found_nonce[23:16];
+                6'd3: found_response_byte = found_nonce[15:8];
+                6'd4: found_response_byte = found_nonce[7:0];
+                6'd5: found_response_byte = found_hash[255:248];
+                6'd6: found_response_byte = found_hash[247:240];
+                6'd7: found_response_byte = found_hash[239:232];
+                6'd8: found_response_byte = found_hash[231:224];
+                6'd9: found_response_byte = found_hash[223:216];
+                6'd10: found_response_byte = found_hash[215:208];
+                6'd11: found_response_byte = found_hash[207:200];
+                6'd12: found_response_byte = found_hash[199:192];
+                6'd13: found_response_byte = found_hash[191:184];
+                6'd14: found_response_byte = found_hash[183:176];
+                6'd15: found_response_byte = found_hash[175:168];
+                6'd16: found_response_byte = found_hash[167:160];
+                6'd17: found_response_byte = found_hash[159:152];
+                6'd18: found_response_byte = found_hash[151:144];
+                6'd19: found_response_byte = found_hash[143:136];
+                6'd20: found_response_byte = found_hash[135:128];
+                6'd21: found_response_byte = found_hash[127:120];
+                6'd22: found_response_byte = found_hash[119:112];
+                6'd23: found_response_byte = found_hash[111:104];
+                6'd24: found_response_byte = found_hash[103:96];
+                6'd25: found_response_byte = found_hash[95:88];
+                6'd26: found_response_byte = found_hash[87:80];
+                6'd27: found_response_byte = found_hash[79:72];
+                6'd28: found_response_byte = found_hash[71:64];
+                6'd29: found_response_byte = found_hash[63:56];
+                6'd30: found_response_byte = found_hash[55:48];
+                6'd31: found_response_byte = found_hash[47:40];
+                6'd32: found_response_byte = found_hash[39:32];
+                6'd33: found_response_byte = found_hash[31:24];
+                6'd34: found_response_byte = found_hash[23:16];
+                6'd35: found_response_byte = found_hash[15:8];
+                6'd36: found_response_byte = found_hash[7:0];
                 default: found_response_byte = 8'h00;
             endcase
         end
@@ -335,7 +339,7 @@ module top #(
         end else begin
             tx_start <= 1'b0;
 
-            if (!core_found) begin
+            if (!found) begin
                 found_seen <= 1'b0;
             end
 
@@ -346,7 +350,7 @@ module top #(
                         tx_echo <= 1'b1;
                         tx_state <= T_SEND;
                         echo_seen_toggle <= echo_toggle;
-                    end else if (core_found && !found_seen) begin
+                    end else if (found && !found_seen) begin
                         tx_index <= 7'd0;
                         tx_echo <= 1'b0;
                         tx_state <= T_SEND;
@@ -379,10 +383,13 @@ module top #(
         end
     end
 
-    assign led[0] = ~core_running;
-    assign led[1] = ~core_found;
-    assign led[2] = ~current_nonce[20];
-    assign led[3] = ~current_nonce[21];
-    assign led[4] = ~current_nonce[22];
-    assign led[5] = ~current_nonce[23];
+    wire led_core_running = |coreX_running;
+    wire [31:0] led_current_nonce = coreX_current_nonce[found_index * 32 +: 32];
+
+    assign led[0] = ~led_core_running;
+    assign led[1] = ~found;
+    assign led[2] = ~led_current_nonce[20];
+    assign led[3] = ~led_current_nonce[21];
+    assign led[4] = ~led_current_nonce[22];
+    assign led[5] = ~led_current_nonce[23];
 endmodule
