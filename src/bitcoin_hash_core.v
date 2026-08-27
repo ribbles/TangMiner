@@ -75,7 +75,7 @@ module bitcoin_hash_core #(
     function lt255;
         input [255:0] a;
         input [255:0] b;
-        wire  [256:0] subtraction;
+        reg [256:0] subtraction;
         begin
             subtraction = {1'b0, a} - {1'b0, b};
             lt255 = subtraction[256];
@@ -169,4 +169,3 @@ module bitcoin_hash_core #(
         end
     end
 endmodule
-
