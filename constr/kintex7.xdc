@@ -3,6 +3,8 @@
 # ============================================================================
 # Ensure you adjust the specific letter/number of these two pins to match your
 # specific development board's fixed oscillator input and UART bridge lines.
+
+create_clock -name clk -period $CLK_PERIOD_NS [get_ports clk]
 set_property PACKAGE_PIN F22 [get_ports clk]
 set_property IOSTANDARD LVCMOS33 [get_ports clk]
 

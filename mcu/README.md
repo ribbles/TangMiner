@@ -23,60 +23,132 @@ Target board: `ESP32-C3 OLED development board with 0.42 inch OLED module cerami
 
 > **Important limitation:** ESP32-C3 USB is device-side serial/JTAG, not a USB host controller. A USB-C to USB-C cable cannot make the ESP32-C3 host the Tang Nano USB-UART. Use USB-C for power/flashing and wire the FPGA UART to ESP32-C3 GPIO UART pins.
 
-## Connections
+## Pinout
 
-![ESP31-C3](ESP31-C3.png)
+![ESP32-C3](ESP32-C3.png)
 
-| Function | ESP32-C3 pin | Notes |
-| --- | --- | --- |
-| FPGA UART TX | GPIO21 / TX | Connect to FPGA `uart_rx_pin` header or bridge RX |
-| FPGA UART RX | GPIO20 / RX | Connect to FPGA `uart_tx_pin` header or bridge TX |
-| Ground | GND | Common ground with FPGA |
-| OLED SCL | GPIO6 | Built-in display I2C clock |
-| OLED SDA | GPIO5 | Built-in display I2C data |
-| USB-C | USB serial/JTAG | Flashing, monitor, and power |
-| 3V3 | 3.3 V | Logic level is 3.3 V |
-| 5V | VBUS | Use only for power input/output as appropriate for your power split cable |
+| Function | ESP32-C3 pin | Direction | Notes |
+| --- | --- | --- | --- |
+| FPGA UART TX | GPIO21 / TX | ESP32-C3 to FPGA | Connect to FPGA UART RX |
+| FPGA UART RX | GPIO20 / RX | FPGA to ESP32-C3 | Connect to FPGA UART TX |
+| Ground | GND | Shared | Required common ground |
+| OLED SCL | GPIO6 | On-board | Built-in display I2C clock |
+| OLED SDA | GPIO5 | On-board | Built-in display I2C data |
+| USB-C | USB serial/JTAG | Host PC to ESP32-C3 | Flashing, monitor, and power |
+| 3V3 | 3.3 V | Power rail | Logic level is 3.3 V |
+| 5V | VBUS | Power rail | Use only as appropriate with the split power cable |
 
 UART settings to the FPGA are `115200 8N1`, no flow control.
 
-## Firmware
+## Screen
 
-Main source: `mcu/mine.c`
+The OLED is monochrome and too small for useful runtime text, so the firmware uses pixels and compact glyphs only.
+
+```text
++------+----------------------------------------------------------+--+
+|####  |                                                          |M^|
+|####  |                                                          |Mv|
+|####  |                  \              /                       |P^|
+|####  |                   \  bad hash  /                        |Pv|
+|####  |                    \   X      /                         |W^|
+|####  |                    /          \                         |Wv|
+|####  |                   /            \                        |  |
+|####  |                                                          |  |
+|####  |                                    1h23m15s             |  |
++------+----------------------------------------------------------+--+
+```
+
+Left bar:
+
+- Fill amount shows current FPGA work progress toward the timeout window.
+
+Center:
+
+- A large X appears after a bad FPGA hash validation failure.
+- The requested color is red, but this OLED is monochrome, so the X is rendered as a high-contrast white X.
+
+Right indicators, top to bottom:
+
+- `M^`: miner UART TX
+- `Mv`: miner UART RX
+- `P^`: pool TCP TX
+- `Pv`: pool TCP RX
+- `W^`: WiFi connected/TX placeholder
+- `Wv`: WiFi connected/RX placeholder
+
+Requested color semantics:
+
+- Red: disconnected
+- White: connected
+- Blue: TX activity
+- Green: RX activity
+
+Monochrome mapping:
+
+- Disconnected: broken/off 2x2 marker
+- Connected: steady 2x2 marker
+- TX/RX activity: blinking 2x2 marker
+- WiFi activity is not tracked cheaply; WiFi indicators show connection state
+
+## Firmware Layout
+
+- `mcu/mine.c`: app entrypoint, WiFi, DHCP logging, SNTP, main retry loop
+- `mcu/miner.c` / `mcu/miner.h`: FPGA UART transport, work packet creation, stale work timeout, hash validation, share statistics
+- `mcu/pool.c` / `mcu/pool.h`: Stratum TCP connection, JSON parsing, reconnect handling, share submissions
+- `mcu/oled.c` / `mcu/oled.h`: SSD1306-style I2C OLED framebuffer and runtime indicators
+
+## Libraries
 
 Build system: PlatformIO with ESP-IDF.
 
-Libraries and components:
+Components used:
 
-- ESP-IDF WiFi station and DHCP via `esp_wifi`, `esp_netif`, and `esp_event`
+- ESP-IDF WiFi station and DHCP: `esp_wifi`, `esp_netif`, `esp_event`
+- ESP-IDF logging: `ESP_LOGI`, `ESP_LOGW`, `ESP_LOGE`
+- ESP-IDF SNTP helper: `esp_netif_sntp`
 - lwIP BSD sockets for Stratum TCP
-- Managed ESP-IDF component `espressif/cjson` for Stratum JSON messages
+- Managed component `espressif/cjson` for Stratum JSON
 - ESP-IDF UART driver for the TangMiner binary protocol
 - ESP-IDF I2C driver for the built-in OLED
-- Local SHA-256 implementation ported from the host script's compression logic
-- Minimal built-in SSD1306-style OLED text driver, no third-party display dependency
+- ESP-IDF mbedTLS SHA-256 for hashing and midstates
+
+PlatformIO downloads any missing ESP32 platform packages and managed ESP-IDF components during build.
 
 ## Build And Flash
 
-From the repository root:
+From the repository root, put local overrides in `./.env`:
 
 ```sh
-make mcu-build WIFI_SSID="your-wifi" WIFI_PASS="your-pass"
-make mcu-flash MCU_PORT=COM12 WIFI_SSID="your-wifi" WIFI_PASS="your-pass"
-make mcu-monitor MCU_PORT=COM12
+MCU_PORT=COM14
+WIFI_SSID=your-wifi
+WIFI_PASS=your-pass
+POOL_HOST=public-pool.io
+POOL_PORT=13333
+MINER_USER=bc1q...youraddress.worker
+MINER_PASS=
 ```
 
-Optional pool settings:
+Then build or flash:
 
 ```sh
-make mcu-flash \
-  MCU_PORT=COM12 \
-  WIFI_SSID="your-wifi" \
-  WIFI_PASS="your-pass" \
-  POOL_HOST="public-pool.io" \
-  POOL_PORT=13333 \
-  MINER_USER="bc1q...youraddress.worker" \
-  MINER_PASS=""
+make mcu-build
+make mcu-flash
+make mcu-monitor
 ```
 
-PlatformIO downloads any missing ESP32 platform packages when `make mcu-build` is run.
+The Makefile loads `./.env` before applying defaults, so it can set any Make override, including `TARGET`, `PIO`, `MCU_DIR`, `MCU_ENV`, `MCU_PORT`, `WIFI_SSID`, `WIFI_PASS`, `POOL_HOST`, `POOL_PORT`, `MINER_USER`, and `MINER_PASS`.
+
+Command-line values still win over `.env` values:
+
+```sh
+make mcu-flash MCU_PORT=COM14 WIFI_SSID="other-wifi"
+make mcu-monitor MCU_PORT=COM14
+```
+
+Use Make-style `KEY=value` lines in `.env`; avoid shell-only syntax such as `export KEY=value`.
+
+Optional alternate env file:
+
+```sh
+make mcu-build ENV_FILE=.env.lab
+```

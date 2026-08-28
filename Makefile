@@ -1,3 +1,9 @@
+ENV_FILE ?= .env
+ifneq ($(wildcard $(ENV_FILE)),)
+include $(ENV_FILE)
+export
+endif
+
 TARGET ?= tangnano9k
 
 ifeq ($(TARGET),tangnano9k)
@@ -36,7 +42,7 @@ PIO ?= $(if $(wildcard $(PIO_HOME)/.platformio/penv/Scripts/platformio.exe),$(PI
 MCU_DIR := mcu
 MCU_ENV := esp32c3_oled
 MCU_CONFIG := $(MCU_DIR)/mine_config.h
-MCU_PORT ?=
+MCU_PORT ?= COM14
 WIFI_SSID ?=
 WIFI_PASS ?=
 POOL_HOST ?= public-pool.io

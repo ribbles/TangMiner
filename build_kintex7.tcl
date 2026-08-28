@@ -4,9 +4,10 @@
 set_param general.maxThreads 16
 
 set part_device "xc7k325tffg676-2"
-set cores       "80"
-set clk_freq    "650000000"
+set cores       96
+set clk_freq    500000000
 set output_dir  "./build_vivado"
+set CLK_PERIOD_NS [expr {1000000000.0 / $clk_freq}]
 
 file mkdir $output_dir
 
@@ -35,7 +36,11 @@ place_design
 phys_opt_design
 route_design
 
-# 5. Safety DRC Checks & Bitstream Compilation
+# 5. Create timing report
+report_timing_summary -file "${output_dir}/post_route_timing_summary.txt"
+report_timing -max_paths 20 -file "${output_dir}/post_route_timing_paths.txt"
+
+# 6. Safety DRC Checks & Bitstream Compilation
 report_drc -file "${output_dir}/post_route_drc.txt"
 write_bitstream -force "${output_dir}/pack.bit"
 

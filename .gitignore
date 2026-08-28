@@ -2,6 +2,7 @@ build/
 target/
 .venv/
 __pycache__
+.env
 *.vcd
 local/
 impl/

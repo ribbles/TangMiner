@@ -1,5 +1,13 @@
+# PlatformIO & Virtualenv
 .pio/
+.venv/
+
+# ESP-IDF generated configs & managed dependencies
+sdkconfig
+sdkconfig.old
 managed_components/
 dependencies.lock
+
+# Local user configuration & secrets
+.env
 mine_config.h
-sdkconfig.esp32c3_oled
