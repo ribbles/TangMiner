@@ -30,6 +30,10 @@ synth_design -top top \
              -generic [list CLK_FREQ=$clk_freq CORES=$cores] 
             #  -flatten_hierarchy none
 
+report_utilization -file "${output_dir}/utilization_synth.rpt"
+report_utilization -hierarchical -file "${output_dir}/utilization_synth_hier.rpt"
+report_design_analysis -html "${output_dir}/design_analysis_report.html"
+
 # 4. Implementation Steps
 opt_design
 place_design

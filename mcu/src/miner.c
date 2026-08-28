@@ -145,6 +145,8 @@ static double share_diff_from_work(const uint8_t work[32])
     return (double)(ldexpl(65535.0L, 208 - exp) / w);
 }
 
+static bool miner_connected;
+
 void miner_init(void)
 {
     uart_config_t cfg = {
@@ -158,6 +160,9 @@ void miner_init(void)
     ESP_ERROR_CHECK(uart_driver_install(FPGA_UART, 1024, 0, 0, NULL, 0));
     ESP_ERROR_CHECK(uart_param_config(FPGA_UART, &cfg));
     ESP_ERROR_CHECK(uart_set_pin(FPGA_UART, FPGA_TX_GPIO, FPGA_RX_GPIO, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
+    miner_connected = false;
+    oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+    oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
     LOGI("FPGA UART ready baud=%d tx=GPIO%d rx=GPIO%d", FPGA_BAUD, FPGA_TX_GPIO, FPGA_RX_GPIO);
 }
 
@@ -265,6 +270,7 @@ bool miner_poll(miner_result_t *result)
     if (!active.valid || resp[0] != 'F') {
         return false;
     }
+    miner_connected = true;
 
     memset(result, 0, sizeof(*result));
     memcpy(active.header + 76, resp + 1, 4);
@@ -313,6 +319,7 @@ bool miner_timed_out(void)
     }
     batch_diff *= TARGET_SECS / MAX_SECS;
     active.valid = false;
+    miner_connected = false;
     LOGW("work timed out after %.1fs; next batch_diff=%g", MAX_SECS, batch_diff);
     return true;
 }
@@ -330,4 +337,9 @@ uint64_t miner_work_sent_us(void)
 uint64_t miner_work_timeout_us(void)
 {
     return (uint64_t)(MAX_SECS * 1000000.0);
+}
+
+bool miner_is_connected(void)
+{
+    return miner_connected;
 }

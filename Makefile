@@ -131,20 +131,17 @@ vivado:
 mine:
 	python scripts/mine.py
 
-$(MCU_CONFIG): FORCE
-	printf '%s\n' '#pragma once' '#define WIFI_SSID "$(WIFI_SSID)"' '#define WIFI_PASS "$(WIFI_PASS)"' '#define POOL_HOST "$(POOL_HOST)"' '#define POOL_PORT $(POOL_PORT)' '#define MINER_USER "$(MINER_USER)"' '#define MINER_PASS "$(MINER_PASS)"' > $@
+mcu-init:
+	make -C mcu init
 
-mcu-build: $(MCU_CONFIG)
-	$(PIO) run -d $(MCU_DIR) -e $(MCU_ENV)
+mcu-build:
+	make -C mcu build
 
-mcu-flash: $(MCU_CONFIG)
-	$(PIO) run -d $(MCU_DIR) -e $(MCU_ENV) -t upload $(MCU_UPLOAD_PORT)
-
-mcu-monitor:
-	$(PIO) device monitor -d $(MCU_DIR) $(MCU_MONITOR_PORT) -b 115200
+mcu-flash:
+	make -C mcu flash
 
 mcu-clean:
-	$(PIO) run -d $(MCU_DIR) -e $(MCU_ENV) -t clean
+	make -C mcu clean
 
 profile:
 	yosys -s profile.ys

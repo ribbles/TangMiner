@@ -47,3 +47,4 @@ bool miner_timed_out(void);
 void miner_clear_work(void);
 uint64_t miner_work_sent_us(void);
 uint64_t miner_work_timeout_us(void);
+bool miner_is_connected(void);

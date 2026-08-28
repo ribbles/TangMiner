@@ -19,36 +19,45 @@
 #define OLED_WIDTH 72
 #define OLED_HEIGHT 40
 
-#define INDICATOR_SIZE 4
-#define INDICATOR_GAP 1
-#define INDICATOR_STEP_Y (INDICATOR_SIZE + INDICATOR_GAP)
-#define INDICATOR_COLUMN_H (OLED_IND_COUNT * INDICATOR_SIZE + (OLED_IND_COUNT - 1) * INDICATOR_GAP)
-#define INDICATOR_X 52
-#define INDICATOR_Y ((OLED_HEIGHT - INDICATOR_COLUMN_H) > 11 ? 11 : (OLED_HEIGHT - INDICATOR_COLUMN_H))
-#define PROGRESS_X 22
-#define PROGRESS_Y 10
-#define PROGRESS_W 10
-#define PROGRESS_H 26
-#define TIMER_MARGIN_R 1
-#define TIMER_Y (OLED_HEIGHT - TOM_THUMB_H)
-#define TOM_THUMB_H 6
-#define BAD_HASH_X0 20
-#define BAD_HASH_X1 48
-#define BAD_HASH_Y0 6
-#define BAD_HASH_Y1 34
+#define INDICATOR_SIZE 8
+#define PROGRESS_X 2
+#define PROGRESS_Y 2
+#define PROGRESS_W 8
+#define PROGRESS_H 36
+#define TIMER_MARGIN_R 2
+#define TIMER_Y 28
+#define BAD_HASH_X0 2
+#define BAD_HASH_X1 9
+#define BAD_HASH_Y0 2
+#define BAD_HASH_Y1 37
 #define OLED_TX_BUF_SIZE 64
+
+typedef struct {
+    oled_link_t link;
+    uint64_t last_activity_us;
+} oled_indicator_state_t;
 
 static u8g2_t u8g2;
 static i2c_master_bus_handle_t oled_bus;
 static i2c_master_dev_handle_t oled_dev;
 static uint8_t oled_tx_buf[OLED_TX_BUF_SIZE];
 static size_t oled_tx_len;
-static oled_link_t indicators[OLED_IND_COUNT];
+static oled_indicator_state_t indicators[OLED_IND_COUNT];
 static uint64_t work_sent_us;
 static uint64_t work_timeout_us;
 static uint64_t last_pow_us;
 static bool work_active;
 static bool bad_hash;
+
+static const uint8_t wifi_icon_8x7[] = {
+    0x7E, /* .######. */
+    0x81, /* #......# */
+    0x3C, /* ..####.. */
+    0x42, /* .#....#. */
+    0x18, /* ...##... */
+    0x00, /* ........ */
+    0x18, /* ...##... */
+};
 
 static bool oled_i2c_flush(void)
 {
@@ -131,6 +140,18 @@ static uint8_t oled_u8x8_gpio_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, 
     }
 }
 
+static void draw_border(void)
+{
+    if (work_active) {
+        u8g2_DrawFrame(&u8g2, 0, 0, OLED_WIDTH, OLED_HEIGHT);
+    } else {
+        uint64_t now = esp_timer_get_time();
+        if (((now / 500000ULL) & 1ULL) != 0) {
+            u8g2_DrawFrame(&u8g2, 0, 0, OLED_WIDTH, OLED_HEIGHT);
+        }
+    }
+}
+
 static void draw_elapsed(void)
 {
     uint64_t base = last_pow_us ? last_pow_us : esp_timer_get_time();
@@ -147,7 +168,7 @@ static void draw_elapsed(void)
     }
     snprintf(text, sizeof(text), "%02lu:%02lu:%02lu",
              (unsigned long)hours, (unsigned long)mins, (unsigned long)rem);
-    u8g2_SetFont(&u8g2, u8g2_font_tom_thumb_4x6_mn);
+    u8g2_SetFont(&u8g2, u8g2_font_6x10_mn);
     u8g2_SetFontPosTop(&u8g2);
     u8g2_DrawStr(&u8g2, OLED_WIDTH - u8g2_GetStrWidth(&u8g2, text) - TIMER_MARGIN_R, TIMER_Y, text);
 }
@@ -155,7 +176,7 @@ static void draw_elapsed(void)
 static void draw_progress(void)
 {
     u8g2_DrawFrame(&u8g2, PROGRESS_X, PROGRESS_Y, PROGRESS_W, PROGRESS_H);
-    if (!work_active || work_timeout_us == 0) {
+    if (!work_active || work_timeout_us == 0 || work_sent_us == 0) {
         return;
     }
     uint64_t now = esp_timer_get_time();
@@ -168,20 +189,51 @@ static void draw_progress(void)
                  PROGRESS_W - 2, fill);
 }
 
+static void draw_indicator_box(int x, int y, oled_indicator_t ind, uint64_t now)
+{
+    bool is_recent = (now - indicators[ind].last_activity_us) < 150000ULL;
+    bool pulse_on = ((now / 50000ULL) & 1ULL) != 0;
+
+    if (indicators[ind].link == OLED_LINK_UP) {
+        if (is_recent && !pulse_on) {
+            u8g2_DrawFrame(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
+        } else {
+            u8g2_DrawBox(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
+        }
+    } else {
+        // LINK DOWN
+        if (is_recent && pulse_on) {
+            u8g2_DrawBox(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
+        } else {
+            u8g2_DrawFrame(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
+        }
+    }
+}
+
 static void draw_indicators(void)
 {
     uint64_t now = esp_timer_get_time();
-    for (int i = 0; i < OLED_IND_COUNT; i++) {
-        int y = INDICATOR_Y + i * INDICATOR_STEP_Y;
-        bool blink = ((now / 150000ULL) & 1ULL) != 0;
-        bool on = indicators[i] == OLED_LINK_UP ||
-                  ((indicators[i] == OLED_LINK_TX || indicators[i] == OLED_LINK_RX) && blink);
 
-        if (indicators[i] == OLED_LINK_DOWN) {
-            u8g2_DrawFrame(&u8g2, INDICATOR_X, y, INDICATOR_SIZE, INDICATOR_SIZE);
-        } else if (on) {
-            u8g2_DrawBox(&u8g2, INDICATOR_X, y, INDICATOR_SIZE, INDICATOR_SIZE);
-        }
+    // 1. Draw 2x larger header labels: WiFi icon, 'P', 'F'
+    u8g2_DrawBitmap(&u8g2, 31, 1, 1, 7, wifi_icon_8x7);
+
+    u8g2_SetFont(&u8g2, u8g2_font_6x10_tr);
+    u8g2_SetFontPosTop(&u8g2);
+    u8g2_DrawStr(&u8g2, 47, 0, "P");
+    u8g2_DrawStr(&u8g2, 62, 0, "F");
+
+    // 2. Draw TX and RX tags to the left of the indicator rows in 6x10 font
+    u8g2_DrawStr(&u8g2, 13, 8, "TX");
+    u8g2_DrawStr(&u8g2, 13, 17, "RX");
+
+    // 3. Draw 8x8 indicator pairs for WiFi, Pool, FPGA (TX row at Y=9, RX row at Y=18)
+    const oled_indicator_t col_tx[3] = {OLED_IND_WIFI_TX, OLED_IND_POOL_TX, OLED_IND_MINER_TX};
+    const oled_indicator_t col_rx[3] = {OLED_IND_WIFI_RX, OLED_IND_POOL_RX, OLED_IND_MINER_RX};
+    const int col_x[3] = {31, 46, 61};
+
+    for (int i = 0; i < 3; i++) {
+        draw_indicator_box(col_x[i], 9, col_tx[i], now);
+        draw_indicator_box(col_x[i], 18, col_rx[i], now);
     }
 }
 
@@ -209,7 +261,13 @@ void oled_init(void)
 void oled_set_indicator(oled_indicator_t indicator, oled_link_t state)
 {
     if (indicator < OLED_IND_COUNT) {
-        indicators[indicator] = state;
+        if (state == OLED_LINK_DOWN) {
+            indicators[indicator].link = OLED_LINK_DOWN;
+        } else if (state == OLED_LINK_UP) {
+            indicators[indicator].link = OLED_LINK_UP;
+        } else if (state == OLED_LINK_TX || state == OLED_LINK_RX) {
+            indicators[indicator].last_activity_us = esp_timer_get_time();
+        }
     }
 }
 
@@ -233,6 +291,7 @@ void oled_set_bad_hash(bool value)
 void oled_render(void)
 {
     u8g2_ClearBuffer(&u8g2);
+    draw_border();
     draw_progress();
     draw_indicators();
     draw_elapsed();

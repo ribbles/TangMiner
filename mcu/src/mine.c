@@ -127,8 +127,8 @@ static void time_start(void)
 
 static void refresh_screen(void)
 {
-    bool active = miner_work_sent_us() != 0;
-    oled_set_work(miner_work_sent_us(), miner_work_timeout_us(), active);
+    bool is_mining = pool_is_connected() && have_job && miner_is_connected() && miner_work_sent_us() != 0;
+    oled_set_work(miner_work_sent_us(), miner_work_timeout_us(), is_mining);
     oled_set_last_pow(last_pow_us);
     oled_render();
 }
@@ -156,6 +156,8 @@ void app_main(void)
 
     while (true) {
         if (!pool_is_connected()) {
+            have_job = false;
+            miner_clear_work();
             LOGI("connecting to pool");
             if (!pool_connect()) {
                 refresh_screen();
@@ -171,6 +173,7 @@ void app_main(void)
                 have_job = true;
                 miner_clear_work();
             } else if (pool_event.type == POOL_EVENT_DISCONNECTED) {
+                have_job = false;
                 miner_clear_work();
             }
         }
@@ -180,6 +183,8 @@ void app_main(void)
                 oled_set_bad_hash(true);
             } else {
                 last_pow_us = esp_timer_get_time();
+                oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_UP);
+                oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_UP);
                 if (result.share) {
                     pool_submit_share(&result);
                 }
@@ -188,6 +193,8 @@ void app_main(void)
 
         if (miner_timed_out()) {
             LOGW("serial retry path active; stale FPGA work cleared");
+            oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+            oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
         }
         if (have_job && pool_is_connected() && miner_work_sent_us() == 0) {
             miner_start_work(&current_job, current_pool_diff);
