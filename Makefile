@@ -30,8 +30,23 @@ IVERILOG := $(TOOLBIN)/iverilog
 VVP := $(TOOLBIN)/vvp
 SBT ?= sbt
 NEXTPNR_OPTS := --tmg-ripup
+USERPROFILE_UNIX := $(subst \,/,$(USERPROFILE))
+PIO_HOME := $(if $(HOME),$(HOME),$(USERPROFILE_UNIX))
+PIO ?= $(if $(wildcard $(PIO_HOME)/.platformio/penv/Scripts/platformio.exe),$(PIO_HOME)/.platformio/penv/Scripts/platformio.exe,platformio)
+MCU_DIR := mcu
+MCU_ENV := esp32c3_oled
+MCU_CONFIG := $(MCU_DIR)/mine_config.h
+MCU_PORT ?=
+WIFI_SSID ?=
+WIFI_PASS ?=
+POOL_HOST ?= public-pool.io
+POOL_PORT ?= 13333
+MINER_USER ?= bc1qjwgtd0sa3znxftx5s7mzwaz8ct34yvesr2nqa6.tangnano9k
+MINER_PASS ?=
+MCU_UPLOAD_PORT := $(if $(MCU_PORT),--upload-port $(MCU_PORT),)
+MCU_MONITOR_PORT := $(if $(MCU_PORT),--port $(MCU_PORT),)
 
-.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-sha sim-bitcoin sim-dual gowin flash-gowin
+.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-sha sim-bitcoin sim-dual gowin flash-gowin mcu-build mcu-flash mcu-monitor mcu-clean FORCE
 
 all: build
 
@@ -76,7 +91,7 @@ load-verilog: $(VERILOG_PREFIX).fs
 load-spinal: $(SPINAL_PREFIX).fs
 	$(OPENFPGALOADER) -b $(BOARD) $<
 
-flash: flash-spinal
+flash: flash-gowin
 
 flash-verilog: $(VERILOG_PREFIX).fs
 	$(OPENFPGALOADER) -b $(BOARD) -f $<
@@ -105,10 +120,25 @@ gowin:
 	/c/Gowin/Gowin_V1.9.11.03_Education_x64/IDE/bin/gw_sh.exe build_gowin.tcl
 
 vivado:
-	/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat -mode batch -source build_kintex7.tcl -log vivado_build.log -journal vivado.jou
+	/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat -mode batch -source build_kintex7.tcl -log ./build_vivado/vivado_build.log -journal ./build_vivado/vivado.jou
 
 mine:
 	python scripts/mine.py
+
+$(MCU_CONFIG): FORCE
+	printf '%s\n' '#pragma once' '#define WIFI_SSID "$(WIFI_SSID)"' '#define WIFI_PASS "$(WIFI_PASS)"' '#define POOL_HOST "$(POOL_HOST)"' '#define POOL_PORT $(POOL_PORT)' '#define MINER_USER "$(MINER_USER)"' '#define MINER_PASS "$(MINER_PASS)"' > $@
+
+mcu-build: $(MCU_CONFIG)
+	$(PIO) run -d $(MCU_DIR) -e $(MCU_ENV)
+
+mcu-flash: $(MCU_CONFIG)
+	$(PIO) run -d $(MCU_DIR) -e $(MCU_ENV) -t upload $(MCU_UPLOAD_PORT)
+
+mcu-monitor:
+	$(PIO) device monitor -d $(MCU_DIR) $(MCU_MONITOR_PORT) -b 115200
+
+mcu-clean:
+	$(PIO) run -d $(MCU_DIR) -e $(MCU_ENV) -t clean
 
 profile:
 	yosys -s profile.ys

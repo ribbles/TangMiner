@@ -1,0 +1,5 @@
+.pio/
+managed_components/
+dependencies.lock
+mine_config.h
+sdkconfig.esp32c3_oled

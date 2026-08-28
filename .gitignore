@@ -10,3 +10,6 @@ impl/
 *.jou
 *.json*
 *.txt
+mcu/main
+dependencies.lock
+build_vivado

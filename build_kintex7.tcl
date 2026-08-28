@@ -1,16 +1,17 @@
 # ============================================================================
 # Vivado Non-Project Mode Build Script with Dynamic Generics
 # ============================================================================
+set_param general.maxThreads 16
 
-# 1. Gather Configuration parameters from Makefile Environment
-set part_device [expr {[info exists ::env(DEVICE)] ? $::env(DEVICE) : "xc7k325tffg676-2"}]
-set clk_freq    [expr {[info exists ::env(CLK_FREQ)] ? $::env(CLK_FREQ) : "100000000"}]
+set part_device "xc7k325tffg676-2"
+set cores       "80"
+set clk_freq    "650000000"
+set output_dir  "./build_vivado"
 
-set output_dir "./build_vivado"
 file mkdir $output_dir
 
 puts "Starting compilation for device: $part_device"
-puts "Generics -> CLK_FREQ: $clk_freq"
+puts "Generics -> CLK_FREQ: $clk_freq CORES: $cores"
 
 # 2. Ingest Source Files
 read_verilog "./src/bitcoin_hash_core.v"
@@ -25,8 +26,8 @@ read_xdc "./constr/kintex7.xdc"
 # The -generic flag passes values directly to your Verilog module parameters
 synth_design -top top \
              -part $part_device \
-             -generic [list CLK_FREQ=$clk_freq] \
-             -flatten_hierarchy none
+             -generic [list CLK_FREQ=$clk_freq CORES=$cores] 
+            #  -flatten_hierarchy none
 
 # 4. Implementation Steps
 opt_design
