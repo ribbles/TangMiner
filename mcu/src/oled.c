@@ -22,12 +22,12 @@
 #define INDICATOR_SIZE 8
 #define PROGRESS_X 2
 #define PROGRESS_Y 2
-#define PROGRESS_W 8
+#define PROGRESS_W 13
 #define PROGRESS_H 36
 #define TIMER_MARGIN_R 2
-#define TIMER_Y 28
+#define TIMER_Y 27
 #define BAD_HASH_X0 2
-#define BAD_HASH_X1 9
+#define BAD_HASH_X1 14
 #define BAD_HASH_Y0 2
 #define BAD_HASH_Y1 37
 #define OLED_TX_BUF_SIZE 64
@@ -142,9 +142,7 @@ static uint8_t oled_u8x8_gpio_delay(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, 
 
 static void draw_border(void)
 {
-    if (work_active) {
-        u8g2_DrawFrame(&u8g2, 0, 0, OLED_WIDTH, OLED_HEIGHT);
-    } else {
+    if (!work_active) {
         uint64_t now = esp_timer_get_time();
         if (((now / 500000ULL) & 1ULL) != 0) {
             u8g2_DrawFrame(&u8g2, 0, 0, OLED_WIDTH, OLED_HEIGHT);
@@ -215,25 +213,25 @@ static void draw_indicators(void)
     uint64_t now = esp_timer_get_time();
 
     // 1. Draw 2x larger header labels: WiFi icon, 'P', 'F'
-    u8g2_DrawBitmap(&u8g2, 31, 1, 1, 7, wifi_icon_8x7);
+    u8g2_DrawBitmap(&u8g2, 32, 2, 1, 7, wifi_icon_8x7);
 
     u8g2_SetFont(&u8g2, u8g2_font_6x10_tr);
     u8g2_SetFontPosTop(&u8g2);
-    u8g2_DrawStr(&u8g2, 47, 0, "P");
-    u8g2_DrawStr(&u8g2, 62, 0, "F");
+    u8g2_DrawStr(&u8g2, 47, 1, "P");
+    u8g2_DrawStr(&u8g2, 61, 1, "F");
 
     // 2. Draw TX and RX tags to the left of the indicator rows in 6x10 font
-    u8g2_DrawStr(&u8g2, 13, 8, "TX");
-    u8g2_DrawStr(&u8g2, 13, 17, "RX");
+    u8g2_DrawStr(&u8g2, 18, 9, "TX");
+    u8g2_DrawStr(&u8g2, 18, 18, "RX");
 
-    // 3. Draw 8x8 indicator pairs for WiFi, Pool, FPGA (TX row at Y=9, RX row at Y=18)
+    // 3. Draw 8x8 indicator pairs for WiFi, Pool, FPGA (TX row at Y=10, RX row at Y=19)
     const oled_indicator_t col_tx[3] = {OLED_IND_WIFI_TX, OLED_IND_POOL_TX, OLED_IND_MINER_TX};
     const oled_indicator_t col_rx[3] = {OLED_IND_WIFI_RX, OLED_IND_POOL_RX, OLED_IND_MINER_RX};
-    const int col_x[3] = {31, 46, 61};
+    const int col_x[3] = {32, 46, 60};
 
     for (int i = 0; i < 3; i++) {
-        draw_indicator_box(col_x[i], 9, col_tx[i], now);
-        draw_indicator_box(col_x[i], 18, col_rx[i], now);
+        draw_indicator_box(col_x[i], 10, col_tx[i], now);
+        draw_indicator_box(col_x[i], 19, col_rx[i], now);
     }
 }
 
