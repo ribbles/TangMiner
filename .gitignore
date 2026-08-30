@@ -11,6 +11,7 @@ impl/
 *.jou
 *.json*
 *.txt
+*.fs
 mcu/main
 dependencies.lock
 build_vivado

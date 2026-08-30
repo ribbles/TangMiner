@@ -90,7 +90,7 @@ static void sha256_midstate(const uint8_t block[64], uint8_t out[32])
     mbedtls_sha256_update(&ctx, block, 64);
     for (int i = 0; i < 8; i++) {
         uint32_t s = ctx.state[i];
-        out[i * 4] = (uint8_t)(s >> 24);
+        out[i * 4]     = (uint8_t)(s >> 24);
         out[i * 4 + 1] = (uint8_t)(s >> 16);
         out[i * 4 + 2] = (uint8_t)(s >> 8);
         out[i * 4 + 3] = (uint8_t)s;
@@ -231,13 +231,13 @@ bool miner_start_work(const miner_job_t *job, double pool_diff)
     memcpy(packet + 47, batch_target, 32);
 
     const uint8_t stop[] = {'T', 'N', 'S'};
-    oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_TX);
     uart_write_bytes(FPGA_UART, stop, sizeof(stop));
     uart_wait_tx_done(FPGA_UART, pdMS_TO_TICKS(100));
     vTaskDelay(pdMS_TO_TICKS(20));
     uart_flush_input(FPGA_UART);
     uart_write_bytes(FPGA_UART, packet, sizeof(packet));
     uart_wait_tx_done(FPGA_UART, pdMS_TO_TICKS(500));
+    oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_TX);
     active.sent_us = esp_timer_get_time();
     active.valid = true;
     last_no_response_warn_us = active.sent_us;
@@ -253,6 +253,9 @@ bool miner_poll(miner_result_t *result)
         int64_t now = esp_timer_get_time();
         if (active.valid && now - last_no_response_warn_us > 5000000LL) {
             LOGW("no FPGA miner response on UART yet; check TX=GPIO%d RX=GPIO%d GND and FPGA bitstream", FPGA_TX_GPIO, FPGA_RX_GPIO);
+            miner_connected = false;
+            oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+            oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
             last_no_response_warn_us = now;
         }
         return false;
@@ -263,6 +266,9 @@ bool miner_poll(miner_result_t *result)
         int r = uart_read_bytes(FPGA_UART, resp + n, sizeof(resp) - n, pdMS_TO_TICKS(200));
         if (r <= 0) {
             LOGW("short FPGA response bytes=%d errno=%d; continuing", n, errno);
+            miner_connected = false;
+            oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+            oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
             return false;
         }
         n += r;
@@ -277,9 +283,15 @@ bool miner_poll(miner_result_t *result)
     uint8_t digest[32];
     sha256d(active.header, sizeof(active.header), digest);
     if (memcmp(digest, resp + 5, 32) != 0) {
-        LOGE("bad FPGA hash validation failure");
+        char exp_hex[65], got_hex[65];
+        bytes_to_hex(digest, 32, exp_hex);
+        bytes_to_hex(resp + 5, 32, got_hex);
+        LOGE("bad FPGA hash validation failure host=%s fpga=%s", exp_hex, got_hex);
         result->bad_hash = true;
         active.valid = false;
+        miner_connected = false;
+        oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+        oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
         return true;
     }
 
@@ -320,6 +332,8 @@ bool miner_timed_out(void)
     batch_diff *= TARGET_SECS / MAX_SECS;
     active.valid = false;
     miner_connected = false;
+    oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+    oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
     LOGW("work timed out after %.1fs; next batch_diff=%g", MAX_SECS, batch_diff);
     return true;
 }

@@ -189,24 +189,27 @@ static void draw_progress(void)
 
 static void draw_indicator_box(int x, int y, oled_indicator_t ind, uint64_t now)
 {
-    bool is_recent = (now - indicators[ind].last_activity_us) < 150000ULL;
-    bool pulse_on = ((now / 50000ULL) & 1ULL) != 0;
+    bool is_recent = (now - indicators[ind].last_activity_us) < 300000ULL; // 300 ms window
+    bool pulse_on = ((now / 50000ULL) & 1ULL) != 0; // toggle every 50 ms
 
+    // Always draw the outline (hollow frame)
+    u8g2_DrawFrame(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
+
+    // Determine whether we should fill the box
+    bool fill = false;
     if (indicators[ind].link == OLED_LINK_UP) {
-        if (is_recent && !pulse_on) {
-            u8g2_DrawFrame(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
-        } else {
-            u8g2_DrawBox(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
-        }
+        // Connected: normally solid, flash to hollow on activity
+        fill = !(is_recent && !pulse_on);
     } else {
-        // LINK DOWN
-        if (is_recent && pulse_on) {
-            u8g2_DrawBox(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
-        } else {
-            u8g2_DrawFrame(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
-        }
+        // Disconnected: normally hollow, flash solid on activity attempts
+        fill = is_recent && pulse_on;
+    }
+
+    if (fill) {
+        u8g2_DrawBox(&u8g2, x, y, INDICATOR_SIZE, INDICATOR_SIZE);
     }
 }
+
 
 static void draw_indicators(void)
 {

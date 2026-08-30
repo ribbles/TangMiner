@@ -92,6 +92,8 @@ void app_main(void)
         if (miner_poll(&result)) {
             if (result.bad_hash) {
                 oled_set_bad_hash(true);
+                oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
+                oled_set_indicator(OLED_IND_MINER_RX, OLED_LINK_DOWN);
             } else {
                 last_pow_us = esp_timer_get_time();
                 oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_UP);
