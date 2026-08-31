@@ -4,6 +4,9 @@ PORT     ?= COM14
 VENV     ?= .venv
 PYTHON   ?= python
 PIO      ?= $(VENV)/Scripts/pio
+MSYS2_UCRT_GCC := /c/msys64/ucrt64/bin/gcc.exe
+HOST_GCC ?= $(if $(wildcard $(MSYS2_UCRT_GCC)),$(MSYS2_UCRT_GCC),gcc)
+HOST_PATH := PATH=/c/msys64/ucrt64/bin:$$PATH
 .PHONY: all init build flash clean monitor test
 
 all: build
@@ -27,5 +30,5 @@ monitor:
 	$(PIO) device monitor --port $(PORT) --baud 115200
 
 test:
-	cc -pipe -std=c11 -Wall -Wextra -I. -Isrc test_miner_core.c src/miner_core.c -o test_miner_core.exe
+	$(HOST_PATH) $(HOST_GCC) -pipe -std=c11 -Wall -Wextra -I. -Isrc test_miner_core.c src/miner_core.c -o test_miner_core.exe
 	./test_miner_core.exe
