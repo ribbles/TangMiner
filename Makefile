@@ -52,7 +52,7 @@ MINER_PASS ?=
 MCU_UPLOAD_PORT := $(if $(MCU_PORT),--upload-port $(MCU_PORT),)
 MCU_MONITOR_PORT := $(if $(MCU_PORT),--port $(MCU_PORT),)
 
-.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-sha sim-bitcoin sim-dual gowin flash-gowin mcu-build mcu-flash mcu-monitor mcu-clean FORCE
+.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-sha sim-bitcoin sim-dual gowin flash-gowin mcu-build mcu-flash mcu-monitor mcu-clean mcu-test FORCE
 
 all: build
 
@@ -142,6 +142,9 @@ mcu-flash:
 
 mcu-clean:
 	make -C mcu clean
+
+mcu-test:
+	make -C mcu test
 
 profile:
 	yosys -s profile.ys

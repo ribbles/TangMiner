@@ -1,8 +1,6 @@
-#define MBEDTLS_DECLARE_PRIVATE_IDENTIFIERS
 #include "miner.h"
 
 #include <errno.h>
-#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -13,7 +11,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "mbedtls/sha256.h"
+#include "miner_core.h"
 #include "oled.h"
 
 #define FPGA_UART UART_NUM_1
@@ -22,13 +20,11 @@
 #define FPGA_RX_GPIO GPIO_NUM_20
 #define TARGET_SECS 12.0
 #define MAX_SECS 30.0
+#define JOB_PACKET_BYTES MINER_JOB_PACKET_BYTES
+#define FOUND_RESPONSE_BYTES MINER_FOUND_RESPONSE_BYTES
+#define HEADER_BYTES MINER_HEADER_BYTES
 
 static const char *TAG = "miner";
-static uint8_t extranonce1[64];
-static uint8_t coinbase[17000];
-static size_t extranonce1_len;
-static size_t extranonce2_size;
-static uint64_t extranonce2;
 static double batch_diff = 0.003;
 static int64_t last_no_response_warn_us;
 
@@ -70,79 +66,52 @@ static void bytes_to_hex(const uint8_t *in, size_t len, char *out)
     out[len * 2] = 0;
 }
 
+static void fpga_stop_and_drain(void)
+{
+    const uint8_t stop[] = {'T', 'N', 'S'};
+    uint8_t trash[FOUND_RESPONSE_BYTES];
+
+    uart_write_bytes(FPGA_UART, stop, sizeof(stop));
+    uart_wait_tx_done(FPGA_UART, pdMS_TO_TICKS(100));
+    vTaskDelay(pdMS_TO_TICKS(20));
+    while (uart_read_bytes(FPGA_UART, trash, sizeof(trash), pdMS_TO_TICKS(20)) > 0) {
+    }
+    uart_flush_input(FPGA_UART);
+}
+
 static int be_cmp32(const uint8_t a[32], const uint8_t b[32])
 {
     return memcmp(a, b, 32);
 }
 
-static void sha256d(const uint8_t *data, size_t len, uint8_t out[32])
+static double clamp_double(double value, double low, double high)
 {
-    uint8_t tmp[32];
-    mbedtls_sha256(data, len, tmp, 0);
-    mbedtls_sha256(tmp, sizeof(tmp), out, 0);
-}
-
-static void sha256_midstate(const uint8_t block[64], uint8_t out[32])
-{
-    mbedtls_sha256_context ctx;
-    mbedtls_sha256_init(&ctx);
-    mbedtls_sha256_starts(&ctx, 0);
-    mbedtls_sha256_update(&ctx, block, 64);
-    for (int i = 0; i < 8; i++) {
-        uint32_t s = ctx.state[i];
-        out[i * 4]     = (uint8_t)(s >> 24);
-        out[i * 4 + 1] = (uint8_t)(s >> 16);
-        out[i * 4 + 2] = (uint8_t)(s >> 8);
-        out[i * 4 + 3] = (uint8_t)s;
-    }
-    mbedtls_sha256_free(&ctx);
-}
-
-static void diff_to_target(double diff, uint8_t target[32])
-{
-    if (diff < 1e-12) diff = 1e-12;
-    memset(target, 0, 32);
-    double v = ldexp(65535.0 / diff, 208);
-    double max_target = ldexp(1.0, 256) - 1.0;
-    if (v > max_target) {
-        v = max_target;
-    }
-    for (int i = 0; i < 32 && v > 0.0; i++) {
-        double place = ldexp(1.0, 8 * (31 - i));
-        int byte = (int)(v / place);
-        if (byte > 255) {
-            byte = 255;
-        }
-        target[i] = (uint8_t)byte;
-        v -= (double)byte * place;
-    }
-}
-
-static void compact_to_target(const char *nbits, uint8_t target[32])
-{
-    memset(target, 0, 32);
-    uint32_t bits = strtoul(nbits, NULL, 16);
-    uint32_t mant = bits & 0x00ffffff;
-    int exp = (int)(bits >> 24);
-    int idx = 32 - exp;
-    if (idx >= 0 && idx + 2 < 32) {
-        target[idx] = (uint8_t)(mant >> 16);
-        target[idx + 1] = (uint8_t)(mant >> 8);
-        target[idx + 2] = (uint8_t)mant;
-    }
+    if (value < low) return low;
+    if (value > high) return high;
+    return value;
 }
 
 static double share_diff_from_work(const uint8_t work[32])
 {
     int first = 0;
     while (first < 32 && work[first] == 0) first++;
-    if (first == 32) return INFINITY;
+    if (first == 32) return 1.0e300;
     long double w = 0.0L;
-    for (int i = first; i < 32 && i < first + 10; i++) {
+    int used = 0;
+    for (int i = first; i < 32 && used < 8; i++, used++) {
         w = w * 256.0L + work[i];
     }
-    int exp = 8 * (32 - first - 10);
-    return (double)(ldexpl(65535.0L, 208 - exp) / w);
+    long double diff = 65535.0L / w;
+    int scale_bytes = first + used - 6;
+    while (scale_bytes > 0) {
+        diff *= 256.0L;
+        scale_bytes--;
+    }
+    while (scale_bytes < 0) {
+        diff /= 256.0L;
+        scale_bytes++;
+    }
+    return (double)diff;
 }
 
 static bool miner_connected;
@@ -168,74 +137,31 @@ void miner_init(void)
 
 void miner_set_extranonce(const uint8_t *x1, size_t x1_len, size_t x2_size)
 {
-    if (x1_len > sizeof(extranonce1)) {
-        x1_len = sizeof(extranonce1);
+    if (miner_core_set_extranonce(x1, x1_len, x2_size)) {
+        LOGI("extranonce set x1_len=%u x2_size=%u", (unsigned)x1_len, (unsigned)x2_size);
+    } else {
+        LOGE("invalid extranonce x1_len=%u x2_size=%u", (unsigned)x1_len, (unsigned)x2_size);
     }
-    memcpy(extranonce1, x1, x1_len);
-    extranonce1_len = x1_len;
-    extranonce2_size = x2_size;
-    extranonce2 = 0;
-    LOGI("extranonce set x1_len=%u x2_size=%u", (unsigned)x1_len, (unsigned)x2_size);
 }
 
 bool miner_start_work(const miner_job_t *job, double pool_diff)
 {
-    if (!job->valid || extranonce2_size == 0 || extranonce2_size > 8) {
+    miner_work_t work;
+    if (!miner_core_build_work(job, pool_diff, batch_diff, &work)) {
+        LOGE("work build failed");
         return false;
     }
 
-    uint8_t xn2[8] = {0};
-    for (size_t i = 0; i < extranonce2_size; i++) {
-        xn2[extranonce2_size - 1 - i] = (uint8_t)(extranonce2 >> (8 * i));
-    }
-    extranonce2++;
-    bytes_to_hex(xn2, extranonce2_size, active.xn2_hex);
-
-    size_t pos = 0;
-    if (job->coinb1_len + extranonce1_len + extranonce2_size + job->coinb2_len > sizeof(coinbase)) {
-        LOGE("coinbase too large");
-        return false;
-    }
-    memcpy(coinbase + pos, job->coinb1, job->coinb1_len); pos += job->coinb1_len;
-    memcpy(coinbase + pos, extranonce1, extranonce1_len); pos += extranonce1_len;
-    memcpy(coinbase + pos, xn2, extranonce2_size); pos += extranonce2_size;
-    memcpy(coinbase + pos, job->coinb2, job->coinb2_len); pos += job->coinb2_len;
-
-    uint8_t merkle[32];
-    sha256d(coinbase, pos, merkle);
-    for (size_t i = 0; i < job->branch_count; i++) {
-        uint8_t pair[64];
-        memcpy(pair, merkle, 32);
-        memcpy(pair + 32, job->branches[i], 32);
-        sha256d(pair, sizeof(pair), merkle);
-    }
-
-    memcpy(active.header, job->version, 4);
-    memcpy(active.header + 4, job->prevhash, 32);
-    memcpy(active.header + 36, merkle, 32);
-    memcpy(active.header + 68, job->ntime_le, 4);
-    memcpy(active.header + 72, job->nbits_le, 4);
-    memset(active.header + 76, 0, 4);
+    memcpy(active.header, work.header, sizeof(active.header));
+    memcpy(active.xn2_hex, work.xn2_hex, sizeof(active.xn2_hex));
+    memcpy(active.pool_target, work.pool_target, sizeof(active.pool_target));
+    memcpy(active.network_target, work.network_target, sizeof(active.network_target));
     strlcpy(active.job_id, job->job_id, sizeof(active.job_id));
     strlcpy(active.ntime, job->ntime, sizeof(active.ntime));
     active.pool_diff = pool_diff;
-    diff_to_target(pool_diff, active.pool_target);
-    compact_to_target(job->nbits, active.network_target);
 
-    uint8_t packet[79];
-    packet[0] = 'T'; packet[1] = 'N'; packet[2] = 'J';
-    sha256_midstate(active.header, packet + 3);
-    memcpy(packet + 35, active.header + 64, 12);
-    uint8_t batch_target[32];
-    diff_to_target(batch_diff, batch_target);
-    memcpy(packet + 47, batch_target, 32);
-
-    const uint8_t stop[] = {'T', 'N', 'S'};
-    uart_write_bytes(FPGA_UART, stop, sizeof(stop));
-    uart_wait_tx_done(FPGA_UART, pdMS_TO_TICKS(100));
-    vTaskDelay(pdMS_TO_TICKS(20));
-    uart_flush_input(FPGA_UART);
-    uart_write_bytes(FPGA_UART, packet, sizeof(packet));
+    fpga_stop_and_drain();
+    uart_write_bytes(FPGA_UART, work.packet, sizeof(work.packet));
     uart_wait_tx_done(FPGA_UART, pdMS_TO_TICKS(500));
     oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_TX);
     active.sent_us = esp_timer_get_time();
@@ -247,7 +173,7 @@ bool miner_start_work(const miner_job_t *job, double pool_diff)
 
 bool miner_poll(miner_result_t *result)
 {
-    uint8_t resp[37];
+    uint8_t resp[FOUND_RESPONSE_BYTES];
     int n = uart_read_bytes(FPGA_UART, resp, sizeof(resp), pdMS_TO_TICKS(1));
     if (n <= 0) {
         int64_t now = esp_timer_get_time();
@@ -281,12 +207,13 @@ bool miner_poll(miner_result_t *result)
     memset(result, 0, sizeof(*result));
     memcpy(active.header + 76, resp + 1, 4);
     uint8_t digest[32];
-    sha256d(active.header, sizeof(active.header), digest);
+    miner_core_sha256d(active.header, sizeof(active.header), digest);
     if (memcmp(digest, resp + 5, 32) != 0) {
-        char exp_hex[65], got_hex[65];
+        char exp_hex[65], got_hex[65], nonce_hex[9];
         bytes_to_hex(digest, 32, exp_hex);
         bytes_to_hex(resp + 5, 32, got_hex);
-        LOGE("bad FPGA hash validation failure host=%s fpga=%s", exp_hex, got_hex);
+        bytes_to_hex(resp + 1, 4, nonce_hex);
+        LOGE("bad FPGA hash validation failure nonce=%s host=%s fpga=%s", nonce_hex, exp_hex, got_hex);
         result->bad_hash = true;
         active.valid = false;
         miner_connected = false;
@@ -298,8 +225,10 @@ bool miner_poll(miner_result_t *result)
     double secs = (esp_timer_get_time() - active.sent_us) / 1000000.0;
     uint32_t nonce = ((uint32_t)resp[1] << 24) | ((uint32_t)resp[2] << 16) | ((uint32_t)resp[3] << 8) | resp[4];
     result->elapsed_secs = secs;
-    result->hashrate = ((double)nonce + 1.0) / fmax(secs, 1e-9);
-    batch_diff *= fmax(0.5, fmin(4.0, sqrt(TARGET_SECS / fmax(secs, 0.1))));
+    double safe_secs = secs > 1e-9 ? secs : 1e-9;
+    result->hashrate = ((double)nonce + 1.0) / safe_secs;
+    double retune_secs = secs > 0.1 ? secs : 0.1;
+    batch_diff *= clamp_double(TARGET_SECS / retune_secs, 0.5, 4.0);
 
     uint8_t work[32];
     for (int i = 0; i < 32; i++) {
@@ -340,6 +269,9 @@ bool miner_timed_out(void)
 
 void miner_clear_work(void)
 {
+    if (active.valid) {
+        fpga_stop_and_drain();
+    }
     active.valid = false;
 }
 
