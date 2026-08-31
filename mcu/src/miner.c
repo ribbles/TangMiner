@@ -19,13 +19,16 @@
 #define FPGA_TX_GPIO GPIO_NUM_21
 #define FPGA_RX_GPIO GPIO_NUM_20
 #define TARGET_SECS 12.0
-#define MAX_SECS 30.0
+#define MAX_SECS 120.0
+#define INITIAL_BATCH_DIFF 0.003
+#define MAX_BATCH_DIFF 0.003
+#define MIN_BATCH_DIFF 0.000001
 #define JOB_PACKET_BYTES MINER_JOB_PACKET_BYTES
 #define FOUND_RESPONSE_BYTES MINER_FOUND_RESPONSE_BYTES
 #define HEADER_BYTES MINER_HEADER_BYTES
 
 static const char *TAG = "miner";
-static double batch_diff = 0.003;
+static double batch_diff = INITIAL_BATCH_DIFF;
 static int64_t last_no_response_warn_us;
 
 static struct {
@@ -89,6 +92,11 @@ static double clamp_double(double value, double low, double high)
     if (value < low) return low;
     if (value > high) return high;
     return value;
+}
+
+static void retune_batch_diff(double multiplier)
+{
+    batch_diff = clamp_double(batch_diff * multiplier, MIN_BATCH_DIFF, MAX_BATCH_DIFF);
 }
 
 static double share_diff_from_work(const uint8_t work[32])
@@ -177,7 +185,7 @@ bool miner_poll(miner_result_t *result)
     int n = uart_read_bytes(FPGA_UART, resp, sizeof(resp), pdMS_TO_TICKS(1));
     if (n <= 0) {
         int64_t now = esp_timer_get_time();
-        if (active.valid && now - last_no_response_warn_us > 5000000LL) {
+        if (active.valid && now - last_no_response_warn_us > 50000000LL) {
             LOGW("no FPGA miner response on UART yet; check TX=GPIO%d RX=GPIO%d GND and FPGA bitstream", FPGA_TX_GPIO, FPGA_RX_GPIO);
             miner_connected = false;
             oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
@@ -228,7 +236,7 @@ bool miner_poll(miner_result_t *result)
     double safe_secs = secs > 1e-9 ? secs : 1e-9;
     result->hashrate = ((double)nonce + 1.0) / safe_secs;
     double retune_secs = secs > 0.1 ? secs : 0.1;
-    batch_diff *= clamp_double(TARGET_SECS / retune_secs, 0.5, 4.0);
+    retune_batch_diff(clamp_double(TARGET_SECS / retune_secs, 0.5, 4.0));
 
     uint8_t work[32];
     for (int i = 0; i < 32; i++) {
@@ -258,7 +266,7 @@ bool miner_timed_out(void)
     if ((esp_timer_get_time() - active.sent_us) <= (int64_t)(MAX_SECS * 1000000.0)) {
         return false;
     }
-    batch_diff *= TARGET_SECS / MAX_SECS;
+    retune_batch_diff(TARGET_SECS / MAX_SECS);
     active.valid = false;
     miner_connected = false;
     oled_set_indicator(OLED_IND_MINER_TX, OLED_LINK_DOWN);
