@@ -308,7 +308,7 @@ bool pool_submit_share(const miner_result_t *result)
     if (len <= 0 || len >= (int)sizeof(params)) {
         return false;
     }
-    LOGI("submit share job=%s nonce=%s", result->job_id, result->nonce_hex);
+    LOGI("|||||||||||||||||||| submit share job=%s nonce=%s ||||||||||||||||||||", result->job_id, result->nonce_hex);
     return send_json("mining.submit", params);
 }
 

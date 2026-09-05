@@ -123,9 +123,9 @@ void time_start(void)
     esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
     esp_netif_sntp_init(&config);
     if (esp_netif_sntp_sync_wait(pdMS_TO_TICKS(5000)) == ESP_OK) {
-        LOGI("SNTP synced");
+        LOGI("Wifi SNTP synced");
     } else {
-        LOGW("SNTP sync timed out; logs continue with uptime until time is set");
+        LOGW("Wifi SNTP sync timed out; logs continue with uptime until time is set");
     }
 }
 

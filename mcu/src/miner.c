@@ -27,7 +27,7 @@
 #define FOUND_RESPONSE_BYTES MINER_FOUND_RESPONSE_BYTES
 #define HEADER_BYTES MINER_HEADER_BYTES
 
-static const char *TAG = "miner";
+static const char *TAG = "minr";
 static double batch_diff = INITIAL_BATCH_DIFF;
 static int64_t last_no_response_warn_us;
 
@@ -251,7 +251,7 @@ bool miner_poll(miner_result_t *result)
     strlcpy(result->ntime, active.ntime, sizeof(result->ntime));
     uint8_t submit_nonce[4] = {resp[4], resp[3], resp[2], resp[1]};
     bytes_to_hex(submit_nonce, 4, result->nonce_hex);
-    LOGI("FPGA found nonce=%08lx secs=%.2f rate=%.3fMH/s share=%d share_diff=%.8g pool_diff=%g batch_diff=%g",
+    LOGI("FOUND nonce=%08lx secs=%.2f rate=%.3fMH/s share=%d share_diff=%.8g pool_diff=%g batch_diff=%g",
          (unsigned long)nonce, secs, result->hashrate / 1e6, result->share, result->share_diff,
          active.pool_diff, batch_diff);
     active.valid = false;
