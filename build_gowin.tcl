@@ -2,6 +2,7 @@ set_device GW1NR-LV9QN88PC6/I5 -device_version C
 
 add_file src/bitcoin_hash_core.v
 add_file src/sha256_compress.v
+add_file src/lt256.v
 add_file src/uart_rx.v
 add_file src/uart_tx.v
 add_file src/top.v

@@ -2,7 +2,6 @@
 
 module tb_sha256_compress;
     reg clk = 1'b0;
-    reg reset = 1'b1;
     reg start = 1'b0;
     reg [255:0] state_in;
     reg [511:0] block;
@@ -12,7 +11,6 @@ module tb_sha256_compress;
 
     sha256_compress dut (
         .clk(clk),
-        .reset(reset),
         .start(start),
         .state_in(state_in),
         .block(block),
@@ -37,7 +35,6 @@ module tb_sha256_compress;
         };
 
         repeat (4) @(posedge clk);
-        reset <= 1'b0;
         @(posedge clk);
         start <= 1'b1;
         @(posedge clk);

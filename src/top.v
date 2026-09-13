@@ -1,7 +1,9 @@
+`default_nettype wire
+
 module top #(
     parameter CLK_FREQ = 27000000,    // 27MHz for Tang Nano, 100MHz or similar for K7
     parameter BAUD_RATE = 115200,
-    parameter CORES = 2
+    parameter CORES = 1
 )(
     input clk,
     input uart_rx_pin,
@@ -48,15 +50,19 @@ module top #(
     reg core_start;
     reg core_stop;
     reg core_start_pending;
-    reg [255:0] midstate;
-    reg [95:0] tail;
-    reg [255:0] target;
+    reg core_start_after_active_load;
+    reg core_start_after_active_load_d1;
+    reg [255:0] midstate = 256'd0;
+    reg [95:0] tail = 96'd0;
+    reg [255:0] target = 256'd0;
+    reg [255:0] active_midstate = 256'd0;
+    reg [95:0] active_tail = 96'd0;
+    reg [255:0] active_target = 256'd0;
     
     wire [CORES-1:0] coreX_running;
     wire [CORES-1:0] coreX_found;
-    wire [(CORES*32)-1:0] coreX_found_nonce;
-    wire [(CORES*256)-1:0] coreX_found_hash;
-    wire [(CORES*32)-1:0] coreX_current_nonce;
+    wire [31:0] led_current_nonce;
+    wire [CORES*8-1:0] coreX_report_byte;
 
     // wire found = core0_found || core1_found;
     // wire [31:0] found_nonce = core0_found ? core0_found_nonce : core1_found_nonce;
@@ -67,6 +73,7 @@ module top #(
     reg found;
     reg [CORE_INDEX_BITS-1:0] found_index;
     integer idx;
+    integer report_select_idx;
 
     // Select the lowest-numbered core reporting a found nonce.
     always @(*) begin
@@ -80,28 +87,68 @@ module top #(
         end
     end
 
-    wire [31:0] found_nonce = found ? coreX_found_nonce[found_index * 32 +: 32] : 32'd0;
-    wire [255:0] found_hash = found ? coreX_found_hash[found_index * 256 +: 256] : 256'd0;
+    reg [CORE_INDEX_BITS-1:0] report_found_index;
+    wire [CORES-1:0] report_select = {{(CORES-1){1'b0}}, 1'b1} << report_found_index;
+    reg [7:0] selected_report_byte;
+    reg report_load;
+    reg report_shift;
+
+    always @(*) begin
+        selected_report_byte = 8'h00;
+        for (report_select_idx = 0; report_select_idx < CORES; report_select_idx = report_select_idx + 1) begin
+            if (report_found_index == report_select_idx[CORE_INDEX_BITS-1:0]) begin
+                selected_report_byte = coreX_report_byte[report_select_idx * 8 +: 8];
+            end
+        end
+    end
+
+    bitcoin_hash_core #(
+        .START_NONCE(0),
+        .NONCE_STRIDE(CORES)
+    ) core0 (
+        .clk(clk),
+        .start(core_start),
+        .stop(core_stop),
+        .midstate(active_midstate),
+        .tail(active_tail),
+        .target(active_target),
+        .running(coreX_running[0]),
+        .found(coreX_found[0]),
+        .found_nonce(),
+        .found_hash(),
+        .current_nonce(led_current_nonce),
+        .report_byte_out(coreX_report_byte[7:0]),
+        .report_load(report_load),
+        .report_shift(report_shift),
+        .report_select(report_select[0]),
+        .report_bit_index(9'd0),
+        .report_bit_out()
+    );
 
     genvar i;
     generate
-    for (i = 0; i < CORES; i = i + 1) begin : gg
+    for (i = 1; i < CORES; i = i + 1) begin : gg
         bitcoin_hash_core #(
             .START_NONCE(i),
             .NONCE_STRIDE(CORES)
         ) coreX (
             .clk(clk),
-            .reset(reset),
             .start(core_start),
             .stop(core_stop),
-            .midstate(midstate),
-            .tail(tail),
-            .target(target),
+            .midstate(active_midstate),
+            .tail(active_tail),
+            .target(active_target),
             .running(coreX_running[i]),
             .found(coreX_found[i]),
-            .found_nonce(coreX_found_nonce[i * 32 +: 32]),
-            .found_hash(coreX_found_hash[i * 256 +: 256]),
-            .current_nonce(coreX_current_nonce[i * 32 +: 32])
+            .found_nonce(),
+            .found_hash(),
+            .current_nonce(),
+            .report_byte_out(coreX_report_byte[i * 8 +: 8]),
+            .report_load(report_load),
+            .report_shift(report_shift),
+            .report_select(report_select[i]),
+            .report_bit_index(9'd0),
+            .report_bit_out()
         );
     end
     endgenerate
@@ -116,61 +163,19 @@ module top #(
     reg [7:0] command;
 
     localparam T_IDLE = 3'd0;
-    localparam T_SEND = 3'd1;
-    localparam T_WAIT = 3'd2;
+    localparam T_PREP_LOAD = 3'd1;
+    localparam T_SHIFT_REPORT = 3'd2;
+    localparam T_PREP_SEND = 3'd3;
+    localparam T_SEND = 3'd4;
+    localparam T_WAIT = 3'd5;
 
     reg [2:0] tx_state;
     reg [6:0] tx_index;
+    reg [7:0] report_sample_byte;
     reg found_seen;
     reg echo_toggle;
     reg echo_seen_toggle;
     reg tx_echo;
-
-    function [7:0] found_response_byte;
-        input [6:0] index;
-        begin
-            case (index)
-                6'd0: found_response_byte = "F";
-                6'd1: found_response_byte = found_nonce[31:24];
-                6'd2: found_response_byte = found_nonce[23:16];
-                6'd3: found_response_byte = found_nonce[15:8];
-                6'd4: found_response_byte = found_nonce[7:0];
-                6'd5: found_response_byte = found_hash[255:248];
-                6'd6: found_response_byte = found_hash[247:240];
-                6'd7: found_response_byte = found_hash[239:232];
-                6'd8: found_response_byte = found_hash[231:224];
-                6'd9: found_response_byte = found_hash[223:216];
-                6'd10: found_response_byte = found_hash[215:208];
-                6'd11: found_response_byte = found_hash[207:200];
-                6'd12: found_response_byte = found_hash[199:192];
-                6'd13: found_response_byte = found_hash[191:184];
-                6'd14: found_response_byte = found_hash[183:176];
-                6'd15: found_response_byte = found_hash[175:168];
-                6'd16: found_response_byte = found_hash[167:160];
-                6'd17: found_response_byte = found_hash[159:152];
-                6'd18: found_response_byte = found_hash[151:144];
-                6'd19: found_response_byte = found_hash[143:136];
-                6'd20: found_response_byte = found_hash[135:128];
-                6'd21: found_response_byte = found_hash[127:120];
-                6'd22: found_response_byte = found_hash[119:112];
-                6'd23: found_response_byte = found_hash[111:104];
-                6'd24: found_response_byte = found_hash[103:96];
-                6'd25: found_response_byte = found_hash[95:88];
-                6'd26: found_response_byte = found_hash[87:80];
-                6'd27: found_response_byte = found_hash[79:72];
-                6'd28: found_response_byte = found_hash[71:64];
-                6'd29: found_response_byte = found_hash[63:56];
-                6'd30: found_response_byte = found_hash[55:48];
-                6'd31: found_response_byte = found_hash[47:40];
-                6'd32: found_response_byte = found_hash[39:32];
-                6'd33: found_response_byte = found_hash[31:24];
-                6'd34: found_response_byte = found_hash[23:16];
-                6'd35: found_response_byte = found_hash[15:8];
-                6'd36: found_response_byte = found_hash[7:0];
-                default: found_response_byte = 8'h00;
-            endcase
-        end
-    endfunction
 
     function [7:0] echo_response_byte;
         input [6:0] index;
@@ -266,16 +271,25 @@ module top #(
             core_start <= 1'b0;
             core_stop <= 1'b0;
             core_start_pending <= 1'b0;
-            midstate <= 256'd0;
-            tail <= 96'd0;
-            target <= 256'd0;
+            core_start_after_active_load <= 1'b0;
+            core_start_after_active_load_d1 <= 1'b0;
             echo_toggle <= 1'b0;
         end else begin
             core_start <= 1'b0;
             core_stop <= 1'b0;
 
-            if (core_start_pending) begin
+            if (core_start_after_active_load_d1) begin
                 core_start <= 1'b1;
+                core_start_after_active_load_d1 <= 1'b0;
+            end
+
+            if (core_start_after_active_load) begin
+                core_start_after_active_load_d1 <= 1'b1;
+                core_start_after_active_load <= 1'b0;
+            end
+
+            if (core_start_pending) begin
+                core_start_after_active_load <= 1'b1;
                 core_start_pending <= 1'b0;
             end
 
@@ -290,9 +304,6 @@ module top #(
                             core_stop <= 1'b1;
                             rx_state <= R_SYNC0;
                         end else if (rx_data == "H") begin
-                            midstate <= 256'hbc909a336358bff090ccac7d1e59caa8c3c8d8e94f0103c896b187364719f91b;
-                            tail <= 96'h4b1e5e4a29ab5f49ffff001d;
-                            target <= 256'hffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
                             core_start_pending <= 1'b1;
                             rx_state <= R_SYNC0;
                         end else if (rx_data == "J" || rx_data == "E") begin
@@ -302,14 +313,6 @@ module top #(
                         end
                     end
                     R_PAYLOAD: begin
-                        if (payload_count < 7'd32) begin
-                            midstate <= {midstate[247:0], rx_data};
-                        end else if (payload_count < 7'd44) begin
-                            tail <= {tail[87:0], rx_data};
-                        end else if (payload_count < 7'd76) begin
-                            target <= {target[247:0], rx_data};
-                        end
-
                         if (payload_count == JOB_BYTES - 1) begin
                             if (command == "J") begin
                                 core_start_pending <= 1'b1;
@@ -328,16 +331,54 @@ module top #(
     end
 
     always @(posedge clk) begin
+        if (rx_valid) begin
+            case (rx_state)
+                R_CMD: begin
+                    if (rx_data == "H") begin
+                        midstate <= 256'hbc909a336358bff090ccac7d1e59caa8c3c8d8e94f0103c896b187364719f91b;
+                        tail <= 96'h4b1e5e4a29ab5f49ffff001d;
+                        target <= 256'hffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
+                    end
+                end
+
+                R_PAYLOAD: begin
+                    if (payload_count < 7'd32) begin
+                        midstate <= {midstate[247:0], rx_data};
+                    end else if (payload_count < 7'd44) begin
+                        tail <= {tail[87:0], rx_data};
+                    end else if (payload_count < 7'd76) begin
+                        target <= {target[247:0], rx_data};
+                    end
+                end
+            endcase
+        end
+    end
+
+    always @(posedge clk) begin
+        if (core_start_pending) begin
+            active_midstate <= midstate;
+            active_tail <= tail;
+            active_target <= target;
+        end
+    end
+
+    always @(posedge clk) begin
         if (reset) begin
             tx_state <= T_IDLE;
             tx_index <= 6'd0;
             tx_start <= 1'b0;
             tx_data <= 8'hff;
+            report_found_index <= {CORE_INDEX_BITS{1'b0}};
+            report_sample_byte <= 8'h00;
+            report_load <= 1'b0;
+            report_shift <= 1'b0;
             found_seen <= 1'b0;
             echo_seen_toggle <= 1'b0;
             tx_echo <= 1'b0;
         end else begin
             tx_start <= 1'b0;
+            report_load <= 1'b0;
+            report_shift <= 1'b0;
 
             if (!found) begin
                 found_seen <= 1'b0;
@@ -353,14 +394,30 @@ module top #(
                     end else if (found && !found_seen) begin
                         tx_index <= 7'd0;
                         tx_echo <= 1'b0;
-                        tx_state <= T_SEND;
+                        report_found_index <= found_index;
+                        tx_state <= T_PREP_LOAD;
                         found_seen <= 1'b1;
                     end
                 end
 
+                T_PREP_LOAD: begin
+                    report_load <= 1'b1;
+                    tx_state <= T_PREP_SEND;
+                end
+
+                T_SHIFT_REPORT: begin
+                    report_shift <= 1'b1;
+                    tx_state <= T_PREP_SEND;
+                end
+
+                T_PREP_SEND: begin
+                    report_sample_byte <= selected_report_byte;
+                    tx_state <= T_SEND;
+                end
+
                 T_SEND: begin
                     if (!tx_busy) begin
-                        tx_data <= tx_echo ? echo_response_byte(tx_index) : found_response_byte(tx_index);
+                        tx_data <= tx_echo ? echo_response_byte(tx_index) : report_sample_byte;
                         tx_start <= 1'b1;
                         tx_state <= T_WAIT;
                     end
@@ -373,7 +430,7 @@ module top #(
                             tx_state <= T_IDLE;
                         end else begin
                             tx_index <= tx_index + 7'd1;
-                            tx_state <= T_SEND;
+                            tx_state <= tx_echo ? T_SEND : T_SHIFT_REPORT;
                         end
                     end
                 end
@@ -384,7 +441,7 @@ module top #(
     end
 
     wire led_core_running = |coreX_running;
-    wire [31:0] led_current_nonce = coreX_current_nonce[found_index * 32 +: 32];
+    // wire [31:0] led_current_nonce = coreX_current_nonce[found_index * 32 +: 32];
 
     assign led[0] = ~led_core_running;
     assign led[1] = ~found;

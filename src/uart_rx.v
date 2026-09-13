@@ -1,3 +1,5 @@
+`default_nettype wire
+
 module uart_rx #(
     parameter CLKS_PER_BIT = 234
 ) (
