@@ -2,14 +2,73 @@
 
 module top #(
     parameter CLK_FREQ = 27000000,    // 27MHz for Tang Nano, 100MHz or similar for K7
+    parameter INPUT_CLK_FREQ = 50000000,
+    parameter USE_XILINX_MMCM = 0,
     parameter BAUD_RATE = 115200,
     parameter CORES = 1
 )(
     input clk,
     input uart_rx_pin,
     output uart_tx_pin,
-    output [5:0] led
+    output [3:0] led
 );
+    wire sys_clk;
+    wire mmcm_locked;
+
+    generate
+    if (USE_XILINX_MMCM != 0) begin : gen_xilinx_mmcm
+        wire clk_fb;
+        wire clk_mmcm;
+        wire mmcm_locked_i;
+
+        MMCME2_BASE #(
+            .BANDWIDTH("OPTIMIZED"),
+            .CLKIN1_PERIOD(1000000000.0 / INPUT_CLK_FREQ),
+            .DIVCLK_DIVIDE(1),
+            .CLKFBOUT_MULT_F(21.0),
+            .CLKOUT0_DIVIDE_F(5.0),
+            .CLKOUT0_DUTY_CYCLE(0.5),
+            .CLKOUT0_PHASE(0.0),
+            .CLKOUT1_DIVIDE(1),
+            .CLKOUT2_DIVIDE(1),
+            .CLKOUT3_DIVIDE(1),
+            .CLKOUT4_DIVIDE(1),
+            .CLKOUT5_DIVIDE(1),
+            .CLKOUT6_DIVIDE(1),
+            .REF_JITTER1(0.010),
+            .STARTUP_WAIT("FALSE")
+        ) mmcm_i (
+            .CLKIN1(clk),
+            .CLKFBIN(clk_fb),
+            .RST(1'b0),
+            .PWRDWN(1'b0),
+            .CLKFBOUT(clk_fb),
+            .CLKOUT0(clk_mmcm),
+            .CLKOUT0B(),
+            .CLKOUT1(),
+            .CLKOUT1B(),
+            .CLKOUT2(),
+            .CLKOUT2B(),
+            .CLKOUT3(),
+            .CLKOUT3B(),
+            .CLKOUT4(),
+            .CLKOUT5(),
+            .CLKOUT6(),
+            .LOCKED(mmcm_locked_i)
+        );
+
+        BUFG bufg_sys_clk (
+            .I(clk_mmcm),
+            .O(sys_clk)
+        );
+
+        assign mmcm_locked = mmcm_locked_i;
+    end else begin : gen_direct_clk
+        assign sys_clk = clk;
+        assign mmcm_locked = 1'b1;
+    end
+    endgenerate
+
     // Compute UART Bit Period Tick count
     localparam CLKS_PER_BIT = CLK_FREQ / BAUD_RATE;
     localparam JOB_BYTES = 76;
@@ -17,10 +76,12 @@ module top #(
     localparam ECHO_RESP_BYTES = 77;
 
     reg [23:0] reset_counter = 24'd0;
-    wire reset = !reset_counter[23];
+    wire reset = !reset_counter[23] || !mmcm_locked;
 
-    always @(posedge clk) begin
-        if (!reset_counter[23]) begin
+    always @(posedge sys_clk) begin
+        if (!mmcm_locked) begin
+            reset_counter <= 24'd0;
+        end else if (!reset_counter[23]) begin
             reset_counter <= reset_counter + 24'd1;
         end
     end
@@ -28,7 +89,7 @@ module top #(
     wire [7:0] rx_data;
     wire rx_valid;
     uart_rx #(.CLKS_PER_BIT(CLKS_PER_BIT)) rx0 (
-        .clk(clk),
+        .clk(sys_clk),
         .reset(reset),
         .rx(uart_rx_pin),
         .data(rx_data),
@@ -39,7 +100,7 @@ module top #(
     reg [7:0] tx_data;
     wire tx_busy;
     uart_tx #(.CLKS_PER_BIT(CLKS_PER_BIT)) tx0 (
-        .clk(clk),
+        .clk(sys_clk),
         .reset(reset),
         .start(tx_start),
         .data(tx_data),
@@ -106,7 +167,7 @@ module top #(
         .START_NONCE(0),
         .NONCE_STRIDE(CORES)
     ) core0 (
-        .clk(clk),
+        .clk(sys_clk),
         .start(core_start),
         .stop(core_stop),
         .midstate(active_midstate),
@@ -132,7 +193,7 @@ module top #(
             .START_NONCE(i),
             .NONCE_STRIDE(CORES)
         ) coreX (
-            .clk(clk),
+            .clk(sys_clk),
             .start(core_start),
             .stop(core_stop),
             .midstate(active_midstate),
@@ -171,7 +232,6 @@ module top #(
 
     reg [2:0] tx_state;
     reg [6:0] tx_index;
-    reg [7:0] report_sample_byte;
     reg found_seen;
     reg echo_toggle;
     reg echo_seen_toggle;
@@ -263,7 +323,7 @@ module top #(
         end
     endfunction
 
-    always @(posedge clk) begin
+    always @(posedge sys_clk) begin
         if (reset) begin
             rx_state <= R_SYNC0;
             payload_count <= 7'd0;
@@ -330,7 +390,7 @@ module top #(
         end
     end
 
-    always @(posedge clk) begin
+    always @(posedge sys_clk) begin
         if (rx_valid) begin
             case (rx_state)
                 R_CMD: begin
@@ -354,7 +414,7 @@ module top #(
         end
     end
 
-    always @(posedge clk) begin
+    always @(posedge sys_clk) begin
         if (core_start_pending) begin
             active_midstate <= midstate;
             active_tail <= tail;
@@ -362,14 +422,13 @@ module top #(
         end
     end
 
-    always @(posedge clk) begin
+    always @(posedge sys_clk) begin
         if (reset) begin
             tx_state <= T_IDLE;
             tx_index <= 6'd0;
             tx_start <= 1'b0;
             tx_data <= 8'hff;
             report_found_index <= {CORE_INDEX_BITS{1'b0}};
-            report_sample_byte <= 8'h00;
             report_load <= 1'b0;
             report_shift <= 1'b0;
             found_seen <= 1'b0;
@@ -411,13 +470,13 @@ module top #(
                 end
 
                 T_PREP_SEND: begin
-                    report_sample_byte <= selected_report_byte;
                     tx_state <= T_SEND;
                 end
 
                 T_SEND: begin
                     if (!tx_busy) begin
-                        tx_data <= tx_echo ? echo_response_byte(tx_index) : report_sample_byte;
+                        tx_data <= tx_echo ? echo_response_byte(tx_index) :
+                                   ((tx_index == 7'd0) ? "F" : selected_report_byte);
                         tx_start <= 1'b1;
                         tx_state <= T_WAIT;
                     end
@@ -430,7 +489,13 @@ module top #(
                             tx_state <= T_IDLE;
                         end else begin
                             tx_index <= tx_index + 7'd1;
-                            tx_state <= tx_echo ? T_SEND : T_SHIFT_REPORT;
+                            if (tx_echo) begin
+                                tx_state <= T_SEND;
+                            end else if (tx_index == 7'd0) begin
+                                tx_state <= T_PREP_SEND;
+                            end else begin
+                                tx_state <= T_SHIFT_REPORT;
+                            end
                         end
                     end
                 end
@@ -447,6 +512,6 @@ module top #(
     assign led[1] = ~found;
     assign led[2] = ~led_current_nonce[20];
     assign led[3] = ~led_current_nonce[21];
-    assign led[4] = ~led_current_nonce[22];
-    assign led[5] = ~led_current_nonce[23];
+    // assign led[4] = ~led_current_nonce[22];
+    // assign led[5] = ~led_current_nonce[23];
 endmodule

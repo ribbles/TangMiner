@@ -44,7 +44,7 @@ module sha256_compress (
     reg [31:0] w14;
     reg [31:0] w15;
     reg [6:0] round = 7'd0;
-    reg [31:0] round_constant;
+    reg [31:0] round_constant = 31'd0;
 
     wire [31:0] schedule_word = w0;
     wire [31:0] next_schedule_word = s1(w14) + w9 + s0(w1) + w0;

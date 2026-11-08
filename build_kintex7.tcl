@@ -5,39 +5,9 @@ set_param general.maxThreads 16
 
 set part_device "xc7k325tffg676-2"
 # set part_device "xcku5p-ffvb676-1-i"
-set cores       64
+set cores       4
 set clk_freq    210000000
 set output_dir  "./build_vivado"
-
-# Keep implementation directives overridable so timing sweeps can reuse the
-# same build script without hand-editing the checked-in flow.
-set place_directive    "Explore"
-set phys_opt_directive "AggressiveExplore"
-set route_directive    "Explore"
-
-if {[info exists ::env(CORES_OVERRIDE)]} {
-    set cores $::env(CORES_OVERRIDE)
-}
-
-if {[info exists ::env(CLK_FREQ_OVERRIDE)]} {
-    set clk_freq $::env(CLK_FREQ_OVERRIDE)
-}
-
-if {[info exists ::env(VIVADO_OUTPUT_DIR)]} {
-    set output_dir $::env(VIVADO_OUTPUT_DIR)
-}
-
-if {[info exists ::env(VIVADO_PLACE_DIRECTIVE)]} {
-    set place_directive $::env(VIVADO_PLACE_DIRECTIVE)
-}
-
-if {[info exists ::env(VIVADO_PHYS_OPT_DIRECTIVE)]} {
-    set phys_opt_directive $::env(VIVADO_PHYS_OPT_DIRECTIVE)
-}
-
-if {[info exists ::env(VIVADO_ROUTE_DIRECTIVE)]} {
-    set route_directive $::env(VIVADO_ROUTE_DIRECTIVE)
-}
 
 set CLK_PERIOD_NS [expr {1000000000.0 / $clk_freq}]
 
@@ -45,7 +15,6 @@ file mkdir $output_dir
 
 puts "Starting compilation for device: $part_device"
 puts "Generics -> CLK_FREQ: $clk_freq CORES: $cores"
-puts "Implementation -> PLACE: $place_directive PHYS_OPT: $phys_opt_directive ROUTE: $route_directive"
 
 # 2. Read RTL and constraints.
 read_verilog "./src/bitcoin_hash_core.v"
@@ -77,7 +46,7 @@ set_msg_config -id {Place 30-974} -new_severity {ERROR}
 # 3. Synthesize the top-level with parameter overrides.
 synth_design -top top \
              -part $part_device \
-             -generic [list CLK_FREQ=$clk_freq CORES=$cores]
+             -generic [list CLK_FREQ=$clk_freq INPUT_CLK_FREQ=50000000 USE_XILINX_MMCM=1 CORES=$cores]
             #  -flatten_hierarchy none
 
 # Keep each mining core clustered in its own soft pblock so the placer preserves
@@ -125,9 +94,9 @@ report_utilization -hierarchical -file "${output_dir}/utilization_synth_hier.rpt
 
 # 4. Implementation Steps
 opt_design
-place_design -directive $place_directive
-phys_opt_design -directive $phys_opt_directive
-route_design -directive $route_directive
+place_design -directive Explore
+phys_opt_design -directive AggressiveExplore
+route_design -directive Explore
 
 source ./capture_floorplan.tcl
 

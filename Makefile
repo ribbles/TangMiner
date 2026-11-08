@@ -56,7 +56,7 @@ MINER_PASS ?=
 MCU_UPLOAD_PORT := $(if $(MCU_PORT),--upload-port $(MCU_PORT),)
 MCU_MONITOR_PORT := $(if $(MCU_PORT),--port $(MCU_PORT),)
 
-.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-lt256 sim-sha sim-bitcoin sim-dual gowin flash-gowin mcu-build mcu-flash mcu-monitor mcu-clean mcu-test FORCE
+.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-lt256 sim-sha sim-bitcoin sim-dual sim-uart gowin flash-gowin mcu-build mcu-flash mcu-monitor mcu-clean mcu-test FORCE
 
 all: build
 
@@ -112,7 +112,7 @@ flash-spinal: $(SPINAL_PREFIX).fs
 flash-gowin:
 	$(OPENFPGALOADER) -b $(BOARD) -f impl/pnr/top.fs
 
-sim: sim-lt256 sim-sha sim-bitcoin sim-dual
+sim: sim-lt256 sim-sha sim-bitcoin sim-dual sim-uart
 
 sim-lt256: | $(BUILD)/.dir
 	$(IVERILOG) -g2012 -o $(BUILD)/tb_lt256 sim/tb_lt256.v src/lt256.v
@@ -130,6 +130,10 @@ sim-dual: | $(BUILD)/.dir
 	$(IVERILOG) -g2012 -o $(BUILD)/tb_dual_bitcoin_hash_core sim/tb_dual_bitcoin_hash_core.v src/bitcoin_hash_core.v src/sha256_compress.v src/lt256.v
 	$(VVP) $(BUILD)/tb_dual_bitcoin_hash_core
 
+sim-uart: | $(BUILD)/.dir
+	$(IVERILOG) -g2012 -o $(BUILD)/tb_uart_top sim/tb_uart_top.v src/top.v src/uart_rx.v src/uart_tx.v src/bitcoin_hash_core.v src/sha256_compress.v src/lt256.v
+	$(VVP) $(BUILD)/tb_uart_top
+
 gowin:
 	/c/Gowin/Gowin_V1.9.11.03_Education_x64/IDE/bin/gw_sh.exe build_gowin.tcl
 
@@ -139,7 +143,7 @@ vivado:
 	python3.14.exe scripts/render_floorplan.py
 
 mine:
-	python scripts/mine.py
+	python3.14 scripts/mine.py
 
 mcu-init:
 	make -C mcu init

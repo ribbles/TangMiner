@@ -4,10 +4,10 @@
 # ============================================================================
 # Core Clock and System Interfaces
 # ============================================================================
-set_property PACKAGE_PIN AC23 [get_ports sys_clk]
-set_property IOSTANDARD LVCMOS33 [get_ports sys_clk]
+set_property PACKAGE_PIN AC23 [get_ports clk]
+set_property IOSTANDARD LVCMOS33 [get_ports clk]
 # 50MHz oscillator
-create_clock -period 20.000 -name sys_clk_pin [get_ports sys_clk]
+create_clock -period 20.000 -name sys_clk_pin [get_ports clk]
 
 # JTAG / BANK 0
 set_property CFGBVS VCCO [current_design]
@@ -16,11 +16,11 @@ set_property CONFIG_VOLTAGE 3.3 [current_design]
 
 # UART
 # AF24  IO_L20P_T3_12 BANK 12 HR 7K70T >>>>> GPIO 14
-set_property PACKAGE_PIN AF24	[get_ports {uart_rx}]
-set_property IOSTANDARD LVCMOS33 [get_ports {uart_rx}]
+set_property PACKAGE_PIN AF24	[get_ports {uart_rx_pin}]
+set_property IOSTANDARD LVCMOS33 [get_ports {uart_rx_pin}]
 # AE25  IO_L23N_T3_12 BANK 12 HR 7K70T >>>>> GPIO 15
-set_property PACKAGE_PIN AE25 [get_ports {uart_tx}]
-set_property IOSTANDARD LVCMOS33 [get_ports {uart_tx}]
+set_property PACKAGE_PIN AE25 [get_ports {uart_tx_pin}]
+set_property IOSTANDARD LVCMOS33 [get_ports {uart_tx_pin}]
 
 
 
