@@ -1,12 +1,13 @@
 # ============================================================================
 # Vivado Non-Project Mode Build Script with Dynamic Generics
 # ============================================================================
-set_param general.maxThreads 16
+source "./constr/build.tlc"
 
 set part_device "xc7k325tffg676-2"
 # set part_device "xcku5p-ffvb676-1-i"
-set cores       4
-set clk_freq    210000000
+set cores       48
+set clk_freq    100000000
+set uart_diagnostic 0
 set output_dir  "./build_vivado"
 
 set CLK_PERIOD_NS [expr {1000000000.0 / $clk_freq}]
@@ -17,49 +18,14 @@ puts "Starting compilation for device: $part_device"
 puts "Generics -> CLK_FREQ: $clk_freq CORES: $cores"
 
 # 2. Read RTL and constraints.
-read_verilog "./src/bitcoin_hash_core.v"
-read_verilog "./src/sha256_compress.v"
-read_verilog "./src/lt256.v"
-read_verilog "./src/top.v"
-read_verilog "./src/uart_rx.v"
-read_verilog "./src/uart_tx.v"
-
+read_verilog [glob ./src/*.v]
 read_xdc "./constr/kintex7.xdc"
 
-# Treat the usual synthesis and constraint footguns as hard failures.
-set_msg_config -id {Synth 8-327} -new_severity {ERROR}
-set_msg_config -id {Synth 8-3352} -new_severity {ERROR}
-set_msg_config -id {Synth 8-685} -new_severity {ERROR}
-set_msg_config -id {Synth 8-3936} -new_severity {ERROR}
-set_msg_config -id {Vivado 12-4366} -new_severity {ERROR}
-set_msg_config -id {Timing 38-313} -new_severity {ERROR}
-set_msg_config -id {Place 30-640} -new_severity {ERROR}
-set_msg_config -id {Designutils 20-1307} -new_severity {ERROR}
-set_msg_config -id {Vivado 12-4739} -new_severity {ERROR}
-set_msg_config -id {Constraints 18-521} -new_severity {ERROR}
-set_msg_config -id {Timing 38-249} -new_severity {ERROR}
-# set_msg_config -id {Timing 38-3} -new_severity {ERROR}
-set_msg_config -id {Place 30-487} -new_severity {ERROR}
-set_msg_config -id {Place 30-974} -new_severity {ERROR}
-
-
 # 3. Synthesize the top-level with parameter overrides.
-synth_design -top top \
+synth_design -top top_kintex \
              -part $part_device \
-             -generic [list CLK_FREQ=$clk_freq INPUT_CLK_FREQ=50000000 USE_XILINX_MMCM=1 CORES=$cores]
+             -generic [list CLK_FREQ=$clk_freq INPUT_CLK_FREQ=50000000 CORES=$cores UART_DIAGNOSTIC=$uart_diagnostic]
             #  -flatten_hierarchy none
-
-# Keep each mining core clustered in its own soft pblock so the placer preserves
-# the floorplan intent without completely freezing local optimization.
-create_pblock "pb_core_0"
-add_cells_to_pblock [get_pblocks "pb_core_0"] [get_cells "core0"]
-# set_property IS_SOFT TRUE [get_pblocks "pb_core_0"]
-
-for {set i 1} {$i < $cores} {incr i} {
-    create_pblock "pb_core_$i"
-    add_cells_to_pblock [get_pblocks "pb_core_$i"] [get_cells "gg\[$i\].coreX"]
-    # set_property IS_SOFT TRUE [get_pblocks "pb_core_$i"]
-}
 
 # Remap nonce register enables into datapath logic. This avoids a long routed
 # compare-to-CE network that was previously the top failing path at 210 MHz.

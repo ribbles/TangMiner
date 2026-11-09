@@ -1,9 +1,7 @@
 `default_nettype wire
 
 module top #(
-    parameter CLK_FREQ = 27000000,    // 27MHz for Tang Nano, 100MHz or similar for K7
-    parameter INPUT_CLK_FREQ = 50000000,
-    parameter USE_XILINX_MMCM = 0,
+    parameter CLK_FREQ = 27000000,
     parameter BAUD_RATE = 115200,
     parameter CORES = 1
 )(
@@ -12,62 +10,8 @@ module top #(
     output uart_tx_pin,
     output [3:0] led
 );
-    wire sys_clk;
-    wire mmcm_locked;
-
-    generate
-    if (USE_XILINX_MMCM != 0) begin : gen_xilinx_mmcm
-        wire clk_fb;
-        wire clk_mmcm;
-        wire mmcm_locked_i;
-
-        MMCME2_BASE #(
-            .BANDWIDTH("OPTIMIZED"),
-            .CLKIN1_PERIOD(1000000000.0 / INPUT_CLK_FREQ),
-            .DIVCLK_DIVIDE(1),
-            .CLKFBOUT_MULT_F(21.0),
-            .CLKOUT0_DIVIDE_F(5.0),
-            .CLKOUT0_DUTY_CYCLE(0.5),
-            .CLKOUT0_PHASE(0.0),
-            .CLKOUT1_DIVIDE(1),
-            .CLKOUT2_DIVIDE(1),
-            .CLKOUT3_DIVIDE(1),
-            .CLKOUT4_DIVIDE(1),
-            .CLKOUT5_DIVIDE(1),
-            .CLKOUT6_DIVIDE(1),
-            .REF_JITTER1(0.010),
-            .STARTUP_WAIT("FALSE")
-        ) mmcm_i (
-            .CLKIN1(clk),
-            .CLKFBIN(clk_fb),
-            .RST(1'b0),
-            .PWRDWN(1'b0),
-            .CLKFBOUT(clk_fb),
-            .CLKOUT0(clk_mmcm),
-            .CLKOUT0B(),
-            .CLKOUT1(),
-            .CLKOUT1B(),
-            .CLKOUT2(),
-            .CLKOUT2B(),
-            .CLKOUT3(),
-            .CLKOUT3B(),
-            .CLKOUT4(),
-            .CLKOUT5(),
-            .CLKOUT6(),
-            .LOCKED(mmcm_locked_i)
-        );
-
-        BUFG bufg_sys_clk (
-            .I(clk_mmcm),
-            .O(sys_clk)
-        );
-
-        assign mmcm_locked = mmcm_locked_i;
-    end else begin : gen_direct_clk
-        assign sys_clk = clk;
-        assign mmcm_locked = 1'b1;
-    end
-    endgenerate
+    wire sys_clk = clk;
+    wire mmcm_locked = 1'b1;
 
     // Compute UART Bit Period Tick count
     localparam CLKS_PER_BIT = CLK_FREQ / BAUD_RATE;

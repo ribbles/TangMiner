@@ -58,17 +58,3 @@ hash[32]
 Total length: `37` bytes.
 
 The hash is returned in normal SHA digest byte order. The nonce is returned in the four wire-order bytes used in the hashed Bitcoin header.
-
-## Mujina Integration Sketch
-
-A Mujina driver can sit at the same layer as an ASIC hashboard driver:
-
-1. Convert pool work into a block header and target.
-2. Precompute SHA-256 midstate for bytes `0..63` of the header.
-3. Send `TNJ` job packets with unique work, such as distinct extranonce2/merkle roots.
-4. Listen for `F` responses.
-5. Reconstruct and submit shares after converting hash/nonce endian forms expected by the pool stack.
-
-This first protocol does not include temperature, clock control, nonce range completion, or multi-core enumeration. Those can be added as separate command bytes once the single-core path is verified.
-
-For standalone testing, `scripts/make_job.py` emits this packet format from an 80-byte header and a big-endian target.

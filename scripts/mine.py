@@ -7,7 +7,7 @@ import time
 
 import serial
 
-PORT = "COM9"
+PORT = "COM6"
 BAUD = 115200
 HOST = "public-pool.io"
 POOL_PORT = 13333

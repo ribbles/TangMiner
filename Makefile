@@ -6,18 +6,25 @@ include $(ENV_FILE)
 export
 endif
 
-TARGET ?= tangnano9k
+TARGET ?= xc7k325tffg676
 
 ifeq ($(TARGET),tangnano9k)
 BOARD := tangnano9k
 FAMILY := GW1N-9C
 DEVICE := GW1NR-LV9QN88PC6/I5
 CST := constr/tangnano9k.cst
+OPENFPGA_ARGS := -b $(BOARD)
 else ifeq ($(TARGET),tangnano20k)
 BOARD := tangnano20k
 FAMILY := GW2A-18C
 DEVICE := GW2AR-LV18QN88C8/I7
 CST := constr/tangnano20k.cst
+OPENFPGA_ARGS := -b $(BOARD)
+else ifeq ($(TARGET),xc7k325tffg676)
+BOARD := xc7k325tffg676
+FAMILY := GW2A-18C
+DEVICE := xc7k325tffg676
+OPENFPGA_ARGS := --cable dirtyJtag --fpga-part $(DEVICE) 
 else
 $(error Unsupported TARGET '$(TARGET)'. Use tangnano20k or tangnano9k)
 endif
@@ -35,9 +42,10 @@ export PATH := $(TOOLBIN):$(TOOLLIB):$(PATH)
 YOSYS := $(TOOLBIN)/yosys
 NEXTPNR := $(TOOLBIN)/nextpnr-himbaechel
 GOWIN_PACK := $(TOOLBIN)/gowin_pack
-OPENFPGALOADER := $(TOOLBIN)/openFPGALoader
+OPENFPGALOADER := OPENFPGALOADER_SOJ_DIR=/c/fpga/oss-cad-suite/share/openFPGALoader $(TOOLBIN)/openFPGALoader3
 IVERILOG := $(TOOLBIN)/iverilog
 VVP := $(TOOLBIN)/vvp
+VIVADO := /c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat
 SBT ?= sbt
 NEXTPNR_OPTS := --tmg-ripup
 USERPROFILE_UNIX := $(subst \,/,$(USERPROFILE))
@@ -46,7 +54,8 @@ PIO ?= $(if $(wildcard $(PIO_HOME)/.platformio/penv/Scripts/platformio.exe),$(PI
 MCU_DIR := mcu
 MCU_ENV := esp32c3_oled
 MCU_CONFIG := $(MCU_DIR)/mine_config.h
-MCU_PORT ?= COM14
+MCU_PORT ?= COM6
+PING_PORT ?= $(MCU_PORT)
 WIFI_SSID ?=
 WIFI_PASS ?=
 POOL_HOST ?= public-pool.io
@@ -56,61 +65,27 @@ MINER_PASS ?=
 MCU_UPLOAD_PORT := $(if $(MCU_PORT),--upload-port $(MCU_PORT),)
 MCU_MONITOR_PORT := $(if $(MCU_PORT),--port $(MCU_PORT),)
 
-.PHONY: all build build-verilog spinal-verilog build-spinal load load-verilog load-spinal flash flash-verilog flash-spinal clean sim sim-lt256 sim-sha sim-bitcoin sim-dual sim-uart gowin flash-gowin mcu-build mcu-flash mcu-monitor mcu-clean mcu-test FORCE
+.PHONY: build load flash clean sim sim-lt256 sim-sha sim-bitcoin sim-dual sim-uart gowin flash-gowin temp ping mcu-build mcu-flash mcu-monitor mcu-clean mcu-test FORCE
 
-all: build
 
-build: build-verilog
-
-build-verilog: $(VERILOG_PREFIX).fs
-
-build-spinal: $(SPINAL_PREFIX).fs
-
-spinal-verilog: $(SPINAL_SRC)
+build: vivado
 
 $(BUILD)/.dir:
 	mkdir -p $(BUILD)
 	touch $@
 
-$(SPINAL_SRC): src/main/scala/tangminer/TangMiner.scala build.sbt project/build.properties | $(BUILD)/.dir
-	$(SBT) "runMain tangminer.GenerateVerilog"
 
-$(VERILOG_PREFIX).json: $(SRC) | $(BUILD)/.dir
-	$(YOSYS) -p "read_verilog $(SRC); synth_gowin -top $(TOP) -json $@"
+load: 
+	$(OPENFPGALOADER) $(OPENFPGA_ARGS) build_vivado/pack.bit
 
-$(VERILOG_PREFIX)_pnr.json: $(VERILOG_PREFIX).json $(CST)
-	$(NEXTPNR) $(NEXTPNR_OPTS) --json $< --write $@ --freq 27 --device $(DEVICE) -o family=$(FAMILY) -o cst=$(CST)
-
-$(VERILOG_PREFIX).fs: $(VERILOG_PREFIX)_pnr.json
-	$(GOWIN_PACK) -d $(FAMILY) -o $@ $<
-
-$(SPINAL_PREFIX).json: $(SPINAL_SRC) | $(BUILD)/.dir
-	$(YOSYS) -p "read_verilog $(SPINAL_SRC); synth_gowin -top $(TOP) -json $@"
-
-$(SPINAL_PREFIX)_pnr.json: $(SPINAL_PREFIX).json $(CST)
-	$(NEXTPNR) $(NEXTPNR_OPTS) --json $< --write $@ --freq 27 --device $(DEVICE) -o family=$(FAMILY) -o cst=$(CST)
-
-$(SPINAL_PREFIX).fs: $(SPINAL_PREFIX)_pnr.json
-	$(GOWIN_PACK) -d $(FAMILY) -o $@ $<
-
-load: load-spinal
-
-load-verilog: $(VERILOG_PREFIX).fs
-	$(OPENFPGALOADER) -b $(BOARD) $<
-
-load-spinal: $(SPINAL_PREFIX).fs
-	$(OPENFPGALOADER) -b $(BOARD) $<
-
-flash: flash-gowin
-
-flash-verilog: $(VERILOG_PREFIX).fs
-	$(OPENFPGALOADER) -b $(BOARD) -f $<
-
-flash-spinal: $(SPINAL_PREFIX).fs
-	$(OPENFPGALOADER) -b $(BOARD) -f $<
+flash:
+	$(OPENFPGALOADER) $(OPENFPGA_ARGS) -r -f build_vivado/pack.bit
 
 flash-gowin:
-	$(OPENFPGALOADER) -b $(BOARD) -f impl/pnr/top.fs
+	$(OPENFPGALOADER)  $(OPENFPGA_ARGS) -f impl/pnr/top.fs
+
+temp:
+	OPENFPGALOADER='$(OPENFPGALOADER)' scripts/xadc_temperature.sh $(OPENFPGA_ARGS)
 
 sim: sim-lt256 sim-sha sim-bitcoin sim-dual sim-uart
 
@@ -139,11 +114,14 @@ gowin:
 
 vivado:
 	rm -rf build_vivado/*
-	/c/AMDDesignTools/2026.1/Vivado/bin/vivado.bat -mode batch -source build_kintex7.tcl -log ./build_vivado/vivado_build.log -journal ./build_vivado/vivado.jou
+	$(VIVADO) -mode batch -source build_kintex7.tcl -log ./build_vivado/vivado_build.log -journal ./build_vivado/vivado.jou
 	python3.14.exe scripts/render_floorplan.py
 
 mine:
 	python3.14 scripts/mine.py
+
+ping:
+	python3.14 scripts/ping.py $(PING_PORT)
 
 mcu-init:
 	make -C mcu init
