@@ -4,14 +4,16 @@ module top_kintex #(
     parameter CLK_FREQ = 210000000,
     parameter INPUT_CLK_FREQ = 50000000,
     parameter BAUD_RATE = 115200,
-    parameter CORES = 1,
-    parameter UART_DIAGNOSTIC = 0
+    parameter CORES = 1
 )(
     input clk,
     input uart_rx_pin,
     output uart_tx_pin,
     output [3:0] led
 );
+    // Keep the MMCM VCO in a valid Kintex-7 range, then derive the ratios
+    // from the requested input and system clock frequencies.
+    localparam real MMCM_VCO_FREQ = 1050000000.0;
     wire clk_fb_mmcm;
     wire clk_fb_bufg;
     wire clk_mmcm;
@@ -22,8 +24,8 @@ module top_kintex #(
         .BANDWIDTH("OPTIMIZED"),
         .CLKIN1_PERIOD(1000000000.0 / INPUT_CLK_FREQ),
         .DIVCLK_DIVIDE(1),
-        .CLKFBOUT_MULT_F(21.0),
-        .CLKOUT0_DIVIDE_F(5.0),
+        .CLKFBOUT_MULT_F(MMCM_VCO_FREQ / INPUT_CLK_FREQ),
+        .CLKOUT0_DIVIDE_F(MMCM_VCO_FREQ / CLK_FREQ),
         .CLKOUT0_DUTY_CYCLE(0.5),
         .CLKOUT0_PHASE(0.0),
         .CLKOUT1_DIVIDE(1),
@@ -60,27 +62,19 @@ module top_kintex #(
         .O(clk_fb_bufg)
     );
 
-    BUFGCE bufg_sys_clk (
+    BUFG bufg_sys_clk (
         .I(clk_mmcm),
-        .CE(mmcm_locked),
         .O(clk_mmcm_bufg)
     );
 
-    generate
-        if (UART_DIAGNOSTIC != 0) begin : gen_uart_diagnostic
-            assign uart_tx_pin = uart_rx_pin;
-            assign led = 4'b1111;
-        end else begin : gen_miner
-            top #(
-                .CLK_FREQ(CLK_FREQ),
-                .BAUD_RATE(BAUD_RATE),
-                .CORES(CORES)
-            ) top_i (
-                .clk(clk_mmcm_bufg),
-                .uart_rx_pin(uart_rx_pin),
-                .uart_tx_pin(uart_tx_pin),
-                .led(led)
-            );
-        end
-    endgenerate
+    top #(
+        .CLK_FREQ(CLK_FREQ),
+        .BAUD_RATE(BAUD_RATE),
+        .CORES(CORES)
+    ) top_i (
+        .clk(clk_mmcm_bufg),
+        .uart_rx_pin(uart_rx_pin),
+        .uart_tx_pin(uart_tx_pin),
+        .led(led)
+    );
 endmodule

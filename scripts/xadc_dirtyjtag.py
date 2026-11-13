@@ -6,6 +6,7 @@ import ctypes.util
 import json
 import os
 import struct
+import sys
 import time
 
 import usb.core
@@ -29,6 +30,10 @@ SIG_TDI = 1 << 2
 SIG_TDO = 1 << 3
 SIG_TMS = 1 << 4
 EXTEND_LENGTH = 0x40
+READ_TIMEOUT_MS = 1000
+FLUSH_TIMEOUT_MS = 20
+STARTUP_TIMEOUT_S = 20.0
+STARTUP_PROBE_INTERVAL_S = 0.25
 
 
 def backend():
@@ -38,47 +43,131 @@ def backend():
     return usb.backend.libusb1.get_backend(find_library=ctypes.util.find_library)
 
 
+def classify_usb_error(error):
+    text = str(error).lower()
+    errno = getattr(error, "errno", None)
+    if errno == 13 or "access denied" in text or "insufficient permissions" in text:
+        return (
+            "DirtyJTAG is busy or permission-denied. "
+            "Stop any other USB owner first (for example openFPGALoader --xvc, "
+            "openFPGALoader --detect, or another xadc_dirtyjtag.py process)."
+        )
+    if "no such device" in text or "not found" in text:
+        return "DirtyJTAG disconnected while opening the device."
+    if errno == 10060 or "timed out" in text:
+        return (
+            "DirtyJTAG did not answer INFO in time. This usually means the bridge "
+            "was left mid-transaction by a previous owner."
+        )
+    return None
+
+
 class DirtyJtag:
     def __init__(self, frequency):
         self.device = None
         self.claimed = False
+        self.interface = 0
+        self.ep_out = EP_OUT
+        self.ep_in = EP_IN
         self.device = usb.core.find(idVendor=VID, idProduct=PID, backend=backend())
         if self.device is None:
             raise RuntimeError("DirtyJTAG USB device 1209:c0ca not found")
         try:
             # DirtyJTAG is already configured and is a composite USB device;
             # re-setting its configuration can fail on Windows.
-            self.interface = 0
             usb.util.claim_interface(self.device, self.interface)
             self.claimed = True
+            self._clear_halt(self.ep_in)
+            self._clear_halt(self.ep_out)
+            self._sync_session()
             self.tdi = 0
             self.tms = 0
             self.version = self._info()
             self._write(bytes((CMD_FREQ, (frequency // 1000) >> 8,
                                (frequency // 1000) & 0xff, CMD_STOP)))
+        except usb.core.USBError as error:
+            hint = classify_usb_error(error)
+            if hint:
+                self.close()
+                raise RuntimeError(hint) from error
+            self.close()
+            raise
         except Exception:
             self.close()
             raise
 
+
+    def _clear_halt(self, endpoint):
+        try:
+            self.device.clear_halt(endpoint)
+        except usb.core.USBError:
+            pass
+
+    def _drain_input(self, max_packets=8):
+        for _ in range(max_packets):
+            try:
+                self.device.read(self.ep_in, 64, timeout=FLUSH_TIMEOUT_MS)
+            except usb.core.USBTimeoutError:
+                return
+            except usb.core.USBError:
+                self._clear_halt(self.ep_in)
+                return
+
+    def _sync_session(self):
+        # Recover from a previous owner leaving unread bytes or a halted pipe.
+        self._clear_halt(self.ep_in)
+        self._clear_halt(self.ep_out)
+        self._drain_input()
+        try:
+            self._write(bytes((CMD_STOP,)))
+        except usb.core.USBError:
+            self._clear_halt(self.ep_out)
+        self._drain_input()
+
     def close(self):
         if self.device is not None:
-            if self.claimed:
-                usb.util.release_interface(self.device, self.interface)
-            usb.util.dispose_resources(self.device)
-            self.device = None
+            try:
+                try:
+                    self._write(bytes((CMD_STOP,)))
+                except usb.core.USBError:
+                    pass
+                if self.claimed:
+                    usb.util.release_interface(self.device, self.interface)
+                # Best-effort reset improves next-process startup after
+                # timeout-heavy sessions on some Windows/libusb stacks.
+                try:
+                    self.device.reset()
+                except usb.core.USBError:
+                    pass
+            finally:
+                self.claimed = False
+                usb.util.dispose_resources(self.device)
+                self.device = None
 
     def _write(self, data):
-        self.device.write(EP_OUT, data, timeout=1000)
+        self.device.write(self.ep_out, data, timeout=READ_TIMEOUT_MS)
 
     def _read(self, length=32):
-        while True:
-            data = bytes(self.device.read(EP_IN, length, timeout=1000))
-            if data:
-                return data
+        data = bytes(self.device.read(self.ep_in, length, timeout=READ_TIMEOUT_MS))
+        if not data:
+            raise RuntimeError("DirtyJTAG returned an empty USB packet")
+        return data
 
     def _info(self):
-        self._write(bytes((CMD_INFO, CMD_STOP)))
-        info = self._read(64).decode("ascii", errors="replace")
+        last_timeout = None
+        for _ in range(3):
+            self._write(bytes((CMD_INFO, CMD_STOP)))
+            try:
+                info = self._read(64).decode("ascii", errors="replace")
+                break
+            except usb.core.USBTimeoutError as error:
+                last_timeout = error
+                # If a previous owner left DirtyJTAG mid-transaction, force a
+                # short stop+flush cycle and try INFO again.
+                self._sync_session()
+                time.sleep(0.01)
+        else:
+            raise last_timeout
         if not info.startswith("DJTAG"):
             raise RuntimeError(f"unexpected DirtyJTAG response: {info!r}")
         return int(info[5])
@@ -176,15 +265,42 @@ class DirtyJtag:
         return self.xadc_read(channel)
 
 
+def open_dirtyjtag(frequency):
+    deadline = time.monotonic() + STARTUP_TIMEOUT_S
+    attempts = 0
+    last_error = None
+    while True:
+        attempts += 1
+        try:
+            return DirtyJtag(frequency)
+        except RuntimeError as error:
+            last_error = error
+        except usb.core.USBError as error:
+            hint = classify_usb_error(error)
+            if hint:
+                last_error = RuntimeError(hint)
+            else:
+                raise
+
+        if time.monotonic() >= deadline:
+            detail = f"{last_error}" if last_error else "unknown startup failure"
+            raise RuntimeError(
+                f"Unable to acquire DirtyJTAG after {attempts} attempts over "
+                f"{STARTUP_TIMEOUT_S:g}s: {detail}"
+            )
+        time.sleep(STARTUP_PROBE_INTERVAL_S)
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--interval", type=float, default=10)
+    parser.add_argument("--interval", type=float, default=5)
     parser.add_argument("--frequency", type=int, default=6_000_000)
     parser.add_argument("--count", type=int, default=0, help="stop after this many samples")
     args = parser.parse_args()
-    jtag = DirtyJtag(args.frequency)
+    jtag = None
     try:
-        print(f"DirtyJTAG DJTAG{jtag.version}; polling every {args.interval:g}s")
+        jtag = open_dirtyjtag(args.frequency)
+        print(f"DirtyJTAG DJTAG{jtag.version}; polling every {args.interval:g}s", file=sys.stderr)
         jtag.xadc_single(8)  # XADC calibration
         sample = 0
         while not args.count or sample < args.count:
@@ -192,18 +308,26 @@ def main():
             raw_vccint = jtag.xadc_single(0x01)
             raw_vccint_max = jtag.xadc_single(0x21)
             raw_vccint_min = jtag.xadc_single(0x25)
+            raw_vccaux = jtag.xadc_single(0x02)
+            raw_vccaux_max = jtag.xadc_single(0x22)
+            raw_vccaux_min = jtag.xadc_single(0x26)
             print(json.dumps({
-                "raw_temp": raw_temp,
-                "temp": raw_temp * 503.975 / 65536.0 - 273.15,
-                "raw_vccint": raw_vccint,
-                "vccint": (raw_vccint >> 4) / 4096.0 * 3.0,
-                "maxvccint": (raw_vccint_max >> 4) / 4096.0 * 3.0,
-                "minvccint": (raw_vccint_min >> 4) / 4096.0 * 3.0,
+                "temp": round(raw_temp * 503.975 / 65536.0 - 273.15),
+                "vccint": round((raw_vccint >> 4) / 4096.0 * 3.0, 3),
+                "maxvccint": round((raw_vccint_max >> 4) / 4096.0 * 3.0, 3),
+                "minvccint": round((raw_vccint_min >> 4) / 4096.0 * 3.0, 3),
+                "vccaux": round((raw_vccaux >> 4) / 4096.0 * 3.0, 3),
+                "maxvccaux": round((raw_vccaux_max >> 4) / 4096.0 * 3.0, 3),
+                "minvccaux": round((raw_vccaux_min >> 4) / 4096.0 * 3.0, 3),
             }), flush=True)
             sample += 1
-            time.sleep(args.interval)
+            if not args.count or sample < args.count:
+                time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nStopping.", flush=True, file=sys.stderr)
     finally:
-        jtag.close()
+        if jtag is not None:
+            jtag.close()
 
 
 if __name__ == "__main__":

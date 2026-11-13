@@ -54,8 +54,8 @@ PIO ?= $(if $(wildcard $(PIO_HOME)/.platformio/penv/Scripts/platformio.exe),$(PI
 MCU_DIR := mcu
 MCU_ENV := esp32c3_oled
 MCU_CONFIG := $(MCU_DIR)/mine_config.h
-MCU_PORT ?= COM6
-PING_PORT ?= $(MCU_PORT)
+MCU_PORT ?= 
+PING_PORT ?= COM6
 WIFI_SSID ?=
 WIFI_PASS ?=
 POOL_HOST ?= public-pool.io
@@ -78,8 +78,14 @@ $(BUILD)/.dir:
 load: 
 	$(OPENFPGALOADER) $(OPENFPGA_ARGS) build_vivado/pack.bit
 
+load-test: 
+	$(OPENFPGALOADER) $(OPENFPGA_ARGS) bitstreams/loopback.bit
+
 flash:
 	$(OPENFPGALOADER) $(OPENFPGA_ARGS) -r -f build_vivado/pack.bit
+
+reset:
+	$(OPENFPGALOADER) $(OPENFPGA_ARGS) -r
 
 flash-gowin:
 	$(OPENFPGALOADER)  $(OPENFPGA_ARGS) -f impl/pnr/top.fs

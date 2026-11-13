@@ -29,8 +29,8 @@ set_property SLEW SLOW [get_ports {led[*]}]
 # set_property PACKAGE_PIN  A14	[get_ports {gpio_pins[3]}]
 # set_property PACKAGE_PIN  A8 	[get_ports {gpio_pins[4]}]
 # set_property PACKAGE_PIN  A9	[get_ports {gpio_pins[5]}]
-# # set_property PACKAGE_PIN  A10	[get_ports {gpio_pins[6]}] uart_rx
-# # set_property PACKAGE_PIN  A13	[get_ports {gpio_pins[7]}] uart_tx
+# set_property PACKAGE_PIN  A10	[get_ports {gpio_pins[6]}]
+# set_property PACKAGE_PIN  A13	[get_ports {gpio_pins[7]}]
 # set_property PACKAGE_PIN AE21	[get_ports {gpio_pins[8]}]
 # set_property PACKAGE_PIN AF23	[get_ports {gpio_pins[9]}]
 # set_property PACKAGE_PIN AF24	[get_ports {gpio_pins[10]}]
@@ -44,11 +44,11 @@ set_property SLEW SLOW [get_ports {led[*]}]
 
 
 # GPIO 7
-set_property PACKAGE_PIN  A13		[get_ports {uart_tx_pin}]
+set_property PACKAGE_PIN  AE21		[get_ports {uart_tx_pin}]
 set_property IOSTANDARD LVCMOS33	[get_ports {uart_tx_pin}]
 set_property PULLDOWN true			[get_ports {uart_tx_pin}]
 # GPIO 6
-set_property PACKAGE_PIN  A10		[get_ports {uart_rx_pin}]
+set_property PACKAGE_PIN  AF23		[get_ports {uart_rx_pin}]
 set_property IOSTANDARD LVCMOS33	[get_ports {uart_rx_pin}]
 set_property PULLDOWN true			[get_ports {uart_rx_pin}]
 

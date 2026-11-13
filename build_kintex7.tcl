@@ -6,11 +6,9 @@ source "./constr/build.tlc"
 set part_device "xc7k325tffg676-2"
 # set part_device "xcku5p-ffvb676-1-i"
 set cores       48
-set clk_freq    100000000
-set uart_diagnostic 0
-set output_dir  "./build_vivado"
+set clk_freq    210000000
 
-set CLK_PERIOD_NS [expr {1000000000.0 / $clk_freq}]
+set output_dir  "./build_vivado"
 
 file mkdir $output_dir
 
@@ -24,7 +22,7 @@ read_xdc "./constr/kintex7.xdc"
 # 3. Synthesize the top-level with parameter overrides.
 synth_design -top top_kintex \
              -part $part_device \
-             -generic [list CLK_FREQ=$clk_freq INPUT_CLK_FREQ=50000000 CORES=$cores UART_DIAGNOSTIC=$uart_diagnostic]
+             -generic [list CLK_FREQ=$clk_freq INPUT_CLK_FREQ=50000000 CORES=$cores]
             #  -flatten_hierarchy none
 
 # Remap nonce register enables into datapath logic. This avoids a long routed
